@@ -1,6 +1,7 @@
 // 粉絲下載流程的核心邏輯（與 Supabase 用戶端分離，方便測試）
 //   action "verify"：驗證下載密碼 → 回傳 15 分鐘有效的下載憑證
 //   action "sign"  ：以下載憑證換取私有原圖的限時簽署網址（120 秒）
+//                    variant "plain" 代表下載「無字版」原圖（只回傳有無字版的作品）
 import { hashClient, signToken, verifyToken } from "./token.ts";
 
 export const TOKEN_TTL_SECONDS = 15 * 60;
@@ -26,6 +27,7 @@ export interface ImageRow {
   id: string;
   title: string;
   original_path: string;
+  plain_original_path: string | null;
   mime_type: string;
   file_size: number;
   sort_order: number;
@@ -165,6 +167,11 @@ async function sign(body: Record<string, unknown>, deps: Deps, cors: Record<stri
     return json(401, { error: "token_invalid", message: "下載密碼已更新，請重新輸入下載密碼。" }, cors);
   }
 
+  const variant = body.variant ?? "original";
+  if (variant !== "original" && variant !== "plain") {
+    return json(400, { error: "bad_request", message: "未知的作品版本。" }, cors);
+  }
+
   let ids: string[] | null = null;
   if (body.all !== true) {
     if (!Array.isArray(body.ids) || body.ids.length === 0 || body.ids.length > MAX_IDS) {
@@ -179,13 +186,15 @@ async function sign(body: Record<string, unknown>, deps: Deps, cors: Record<stri
   const monthlyPublic = await deps.monthlyPublic();
   const rows = (await deps.listImages(ids))
     .filter((r) => r.is_published && r.is_downloadable && (!r.is_monthly || monthlyPublic))
+    .filter((r) => variant === "original" || !!r.plain_original_path)
     .sort((a, b) => a.sort_order - b.sort_order);
 
   if (rows.length === 0) {
     return json(404, { error: "not_found", message: "找不到可下載的作品。" }, cors);
   }
 
-  const urls = await deps.signUrls(rows.map((r) => r.original_path), SIGNED_URL_TTL_SECONDS);
+  const paths = rows.map((r) => (variant === "plain" ? r.plain_original_path! : r.original_path));
+  const urls = await deps.signUrls(paths, SIGNED_URL_TTL_SECONDS);
   const items = rows
     .map((r, i) => ({ id: r.id, title: r.title, mime_type: r.mime_type, file_size: r.file_size, url: urls[i] }))
     .filter((r) => typeof r.url === "string");

@@ -57,7 +57,7 @@ Deno.serve((req) =>
     async listImages(ids) {
       let q = admin
         .from("images")
-        .select("id,title,original_path,mime_type,file_size,sort_order,is_published,is_downloadable,is_monthly")
+        .select("id,title,original_path,plain_original_path,mime_type,file_size,sort_order,is_published,is_downloadable,is_monthly")
         .eq("is_published", true)
         .eq("is_downloadable", true);
       if (ids) q = q.in("id", ids);

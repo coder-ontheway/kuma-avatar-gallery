@@ -357,7 +357,7 @@ export function createMockSupabase({ database, storageDir, users, port }) {
     async listImages(ids) {
       const r = await asRole({ role: "service_role" }, (c) =>
         c.query(
-          `select id, title, original_path, mime_type, file_size::int, sort_order, is_published, is_downloadable, is_monthly
+          `select id, title, original_path, plain_original_path, mime_type, file_size::int, sort_order, is_published, is_downloadable, is_monthly
              from public.images where is_published and is_downloadable ${ids ? "and id::text = any($1)" : ""}`,
           ids ? [ids] : [],
         ),

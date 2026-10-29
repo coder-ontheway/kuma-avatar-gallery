@@ -1222,3 +1222,13 @@ code {
     margin: 0 auto;
   }
 }
+
+/* 作品有「無字版」時的切換 */
+.plain-toggle {
+  display: grid;
+  gap: 6px;
+}
+
+.plain-toggle .seg {
+  width: 100%;
+}

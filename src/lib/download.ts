@@ -99,7 +99,9 @@ export interface SignedItem {
   url: string;
 }
 
-async function sign(body: { ids?: string[]; all?: boolean }): Promise<SignedItem[]> {
+export type Variant = "original" | "plain";
+
+async function sign(body: { ids?: string[]; all?: boolean; variant?: Variant }): Promise<SignedItem[]> {
   const token = currentToken();
   if (!token) throw new DownloadError("請先輸入下載密碼。", "token_invalid", 401);
   try {
@@ -126,9 +128,9 @@ async function fetchBlob(url: string, retries = 1): Promise<Blob> {
   }
 }
 
-/** 取得單張原圖（僅在通過密碼驗證後） */
-export async function fetchOriginal(id: string): Promise<{ blob: Blob; item: SignedItem }> {
-  const [item] = await sign({ ids: [id] });
+/** 取得單張原圖（僅在通過密碼驗證後）；variant "plain" 取得無字版 */
+export async function fetchOriginal(id: string, variant: Variant = "original"): Promise<{ blob: Blob; item: SignedItem }> {
+  const [item] = await sign({ ids: [id], variant });
   if (!item) throw new DownloadError("找不到可下載的作品。", "not_found", 404);
   try {
     return { blob: await fetchBlob(item.url), item };

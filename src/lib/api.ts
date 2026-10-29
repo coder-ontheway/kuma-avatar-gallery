@@ -3,7 +3,7 @@ import type { Category, PublicImage, SiteSettings } from "./types";
 
 // 訪客只能讀取這些欄位（資料庫以欄位權限限制，看不到私有原圖路徑）
 export const PUBLIC_IMAGE_COLUMNS =
-  "id,title,description,category_id,tags,preview_path,mime_type,file_size,width,height,sort_order,is_downloadable,is_monthly,work_date";
+  "id,title,description,category_id,tags,preview_path,plain_preview_path,mime_type,file_size,width,height,sort_order,is_downloadable,is_monthly,work_date";
 
 export const SETTINGS_COLUMNS =
   "site_name,brand_name,announcement,facebook_url,latest_update_date,monthly_title,monthly_public,downloads_enabled";
