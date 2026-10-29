@@ -637,6 +637,59 @@ await step("下載全部 ZIP", async () => {
   await fan.getByText(/已完成！共 20 張作品/).waitFor();
 });
 
+await step("無字版（粉絲可拿掉作品上的文字）", async () => {
+  // 測試用的「無字版」：程式產生的純色圖（只用於本機測試，不代表管理員作品）
+  const W = 640;
+  const plain = new PNG({ width: W, height: W });
+  for (let y = 0; y < W; y++) for (let x = 0; x < W; x++) {
+    const i = (y * W + x) * 4;
+    const inside = (x - W / 2) ** 2 + (y - W / 2) ** 2 < (W * 0.45) ** 2;
+    plain.data.set(inside ? [120, 200, 140, 255] : [0, 0, 0, 0], i);
+  }
+  const plainBuf = PNG.sync.write(plain);
+  await pageA.getByRole("link", { name: "作品管理" }).click();
+  await pageA.getByTestId("plain-batch-input").setInputFiles([
+    { name: "16_掰掰_無字.png", mimeType: "image/png", buffer: plainBuf },
+    { name: "不存在的作品_無字.png", mimeType: "image/png", buffer: plainBuf },
+  ]);
+  await pageA.waitForFunction(() => document.querySelectorAll(".up-done").length >= 1, null, { timeout: 30000 });
+  check("管理員可依檔名批次上傳無字版", await pageA.getByText("16_掰掰_無字.png → 掰掰").isVisible());
+  check("檔名對不到作品時明確提示", await pageA.getByText(/找不到同名作品/).isVisible());
+  check("後臺標示「有無字版」", (await pageA.locator("[data-testid=admin-item]", { hasText: "掰掰" }).getByText("有無字版").count()) === 1);
+
+  const col = await fetch(`${API}/rest/v1/images?select=plain_original_path`, { headers: { apikey: mock.ANON_KEY } });
+  check("訪客查不到無字版原圖路徑", col.status === 403, `HTTP ${col.status}`);
+  const noTok = await fetch(`${API}/functions/v1/download`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "sign", all: true, variant: "plain" }) });
+  check("未輸入密碼不能下載無字版", noTok.status === 401, `HTTP ${noTok.status}`);
+
+  await fan.reload();
+  await scrollAll(fan);
+  check("前臺卡片標示「可拿掉文字」", (await fan.locator("section[aria-labelledby=all-title] [data-testid=art-card]", { hasText: "掰掰" }).getByText("可拿掉文字").count()) === 1);
+  await openEditor(fan, "嗨");
+  check("沒有無字版的作品不顯示切換", (await fan.getByRole("button", { name: "拿掉文字" }).count()) === 0);
+  await fan.getByRole("button", { name: "關閉" }).click();
+
+  await openEditor(fan, "掰掰");
+  const before = await canvasDataUrl(fan);
+  await fan.getByRole("button", { name: "拿掉文字" }).click();
+  await fan.waitForFunction((b) => document.querySelector("[data-testid=crop-canvas]").toDataURL("image/png") !== b, before, { timeout: 10000 });
+  check("切換「拿掉文字」後預覽改為無字版", true);
+  await fan.screenshot({ path: path.join(OUT, "editor-plain.png") });
+
+  const [d] = await Promise.all([fan.waitForEvent("download"), fan.getByRole("button", { name: "下載原始圖片" }).click()]);
+  const file = path.join(OUT, d.suggestedFilename());
+  await d.saveAs(file);
+  check("下載無字版原圖（位元組與上傳檔案相同）", Buffer.compare(fs.readFileSync(file), plainBuf) === 0, d.suggestedFilename());
+
+  const [d2] = await Promise.all([fan.waitForEvent("download"), fan.getByRole("button", { name: /下載 Facebook 大頭貼/ }).click()]);
+  const file2 = path.join(OUT, d2.suggestedFilename());
+  await d2.saveAs(file2);
+  const png = readPng(file2);
+  const c = ((png.height >> 1) * png.width + (png.width >> 1)) * 4;
+  check("無字版大頭貼以無字版原圖合成", png.data[c] === 120 && png.data[c + 1] === 200, `${d2.suggestedFilename()}，中心 rgb(${png.data[c]},${png.data[c + 1]},${png.data[c + 2]})`);
+  await fan.getByRole("button", { name: "關閉" }).click();
+});
+
 await step("防暴力猜測", async () => {
   const codes = [];
   for (let i = 0; i < 6; i++) {

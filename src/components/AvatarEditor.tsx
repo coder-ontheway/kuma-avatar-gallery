@@ -83,6 +83,8 @@ export interface EditorImage {
   id: string;
   title: string;
   preview_path: string;
+  /** 無字版預覽圖；有值時粉絲可切換「拿掉作品上的文字」 */
+  plain_preview_path?: string | null;
   mime_type: string;
   width: number;
   height: number;
@@ -108,6 +110,10 @@ export default function AvatarEditor({ image, initialPlatform, downloadsEnabled,
   const lastRecord = useRef(0);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [customBg, setCustomBg] = useState("#ffe7b8");
+  const [plain, setPlain] = useState(false);
+  const usePlain = plain && !!image.plain_preview_path;
+  const sourcePath = usePlain ? image.plain_preview_path! : image.preview_path;
+  const fileTitle = usePlain ? `${image.title}_無字` : image.title;
   const [img, setImg] = useState<HTMLImageElement | null>(null);
   const [loadError, setLoadError] = useState("");
   const [busy, setBusy] = useState<"" | "avatar" | "original">("");
@@ -191,13 +197,13 @@ export default function AvatarEditor({ image, initialPlatform, downloadsEnabled,
 
   useEffect(() => {
     let alive = true;
-    loadImage(previewUrl(image.preview_path))
+    loadImage(previewUrl(sourcePath))
       .then((i) => alive && setImg(i))
       .catch(() => alive && setLoadError("預覽圖載入失敗，請重新整理頁面再試。"));
     return () => {
       alive = false;
     };
-  }, [image.preview_path]);
+  }, [sourcePath]);
 
   // 字型（含中文、表情符號）載入完成後重新繪製，避免預覽掉字
   useEffect(() => {
@@ -348,15 +354,16 @@ export default function AvatarEditor({ image, initialPlatform, downloadsEnabled,
     if (!ok) return;
     setBusy(kind);
     try {
-      const { blob } = await fetchOriginal(image.id).catch(async (e) => {
+      const variant = usePlain ? "plain" : "original";
+      const { blob } = await fetchOriginal(image.id, variant).catch(async (e) => {
         // 憑證失效（例如密碼剛更新）時重新要求輸入一次
         if (e instanceof DownloadError && e.code === "token_invalid" && (await ensureAuth())) {
-          return fetchOriginal(image.id);
+          return fetchOriginal(image.id, variant);
         }
         throw e;
       });
       if (kind === "original") {
-        saveBlob(blob, originalFileName(image.title, image.mime_type));
+        saveBlob(blob, originalFileName(fileTitle, blob.type || image.mime_type));
         setMessage({ type: "ok", text: "原圖下載完成。" });
         return;
       }
@@ -365,7 +372,7 @@ export default function AvatarEditor({ image, initialPlatform, downloadsEnabled,
         // 以「原圖」解析度重新合成（不是截取螢幕預覽）
         const original = await loadImage(url, false);
         const out = await renderAvatarBlob(original, original.naturalWidth, original.naturalHeight, crop, { background: bg }, layers);
-        saveBlob(out, avatarFileName(PLATFORM_CODE[platform], image.title));
+        saveBlob(out, avatarFileName(PLATFORM_CODE[platform], fileTitle));
         setMessage({ type: "ok", text: layers.some((l) => l.text.trim()) ? "你的專屬大頭貼下載完成！" : `${PLATFORM_LABEL[platform]} 大頭貼下載完成。` });
       } finally {
         URL.revokeObjectURL(url);
@@ -468,6 +475,19 @@ export default function AvatarEditor({ image, initialPlatform, downloadsEnabled,
           </div>
 
           <div className="editor-side">
+            {image.plain_preview_path && (
+              <div className="plain-toggle" role="group" aria-label="作品上的文字">
+                <span className="tiny muted">作品上的文字</span>
+                <div className="seg">
+                  <button type="button" aria-pressed={!plain} className={!plain ? "active" : ""} onClick={() => setPlain(false)}>
+                    保留原本文字
+                  </button>
+                  <button type="button" aria-pressed={plain} className={plain ? "active" : ""} onClick={() => setPlain(true)}>
+                    拿掉文字
+                  </button>
+                </div>
+              </div>
+            )}
             <div className="seg" role="tablist" aria-label="編輯項目">
               <button type="button" role="tab" aria-selected={panel === "photo"} className={panel === "photo" ? "active" : ""} onClick={() => setPanel("photo")}>
                 圖片與背景
@@ -552,7 +572,7 @@ export default function AvatarEditor({ image, initialPlatform, downloadsEnabled,
                   </p>
                 )}
                 <p className="tiny muted">
-                  下載檔名：{avatarFileName(PLATFORM_CODE[platform], image.title)}。你的文字與排版只在這個瀏覽器中處理，不會上傳或儲存，關閉視窗後不會保留。
+                  下載檔名：{avatarFileName(PLATFORM_CODE[platform], fileTitle)}。你的文字與排版只在這個瀏覽器中處理，不會上傳或儲存，關閉視窗後不會保留。
                   此為通用的大頭貼裁切示意，各平台實際顯示可能因版本與裝置略有不同。
                 </p>
               </div>

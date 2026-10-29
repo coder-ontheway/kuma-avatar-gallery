@@ -22,6 +22,8 @@ export interface PublicImage {
   category_id: string | null;
   tags: string[];
   preview_path: string;
+  /** 無字版公開預覽圖（沒有無字版時為 null） */
+  plain_preview_path: string | null;
   mime_type: string;
   file_size: number;
   width: number;
@@ -34,6 +36,7 @@ export interface PublicImage {
 
 export interface AdminImage extends PublicImage {
   original_path: string;
+  plain_original_path: string | null;
   is_published: boolean;
   published_at: string | null;
   created_at: string;

@@ -7,13 +7,16 @@ import {
   listAdminImages,
   listCategories,
   publishImages,
+  removePlainVersion,
   replaceImageFile,
   saveOrder,
+  setPlainVersion,
   updateImage,
   uploadNewImage,
 } from "../../lib/admin";
 import { formatBytes } from "../../lib/filename";
 import { titleFromFileName, validateFile } from "../../lib/imageProcessing";
+import { matchPlainFiles } from "../../lib/plainMatch";
 import { formatDate } from "../../lib/api";
 import type { AdminImage, Category } from "../../lib/types";
 
@@ -43,6 +46,10 @@ export default function AdminImages() {
   const fileRef = useRef<HTMLInputElement>(null);
   const replaceRef = useRef<HTMLInputElement>(null);
   const replaceTarget = useRef<AdminImage | null>(null);
+  const plainRef = useRef<HTMLInputElement>(null);
+  const plainTarget = useRef<AdminImage | null>(null);
+  const plainBatchRef = useRef<HTMLInputElement>(null);
+  const [plainUploads, setPlainUploads] = useState<UploadItem[]>([]);
 
   async function load() {
     setLoading(true);
@@ -133,6 +140,63 @@ export default function AdminImages() {
       const updated = await replaceImageFile(target, file);
       setImages((prev) => prev.map((i) => (i.id === updated.id ? updated : i)));
       flash(`已替換「${updated.title}」的圖片。`);
+    });
+  }
+
+  async function onPlain(files: FileList | null) {
+    const target = plainTarget.current;
+    const file = files?.[0];
+    if (plainRef.current) plainRef.current.value = "";
+    if (!target || !file) return;
+    const invalid = validateFile(file);
+    if (invalid) return setError(invalid);
+    await run(async () => {
+      const updated = await setPlainVersion(target, file);
+      setImages((prev) => prev.map((i) => (i.id === updated.id ? updated : i)));
+      flash(`已設定「${updated.title}」的無字版，粉絲可在編輯器選擇「拿掉文字」。`);
+    });
+  }
+
+  async function onPlainBatch(files: FileList | null) {
+    if (!files || files.length === 0) return;
+    const list = Array.from(files);
+    if (plainBatchRef.current) plainBatchRef.current.value = "";
+    const { matched, unmatched } = matchPlainFiles(list, images);
+    const items: UploadItem[] = [
+      ...matched.map((m) => ({ name: `${m.file.name} → ${m.image.title}`, status: "waiting" as const })),
+      ...unmatched.map((f) => ({ name: f.name, status: "error" as const, message: "找不到同名作品" })),
+    ];
+    setPlainUploads(items);
+    let ok = 0;
+    for (let i = 0; i < matched.length; i++) {
+      const { file, image } = matched[i];
+      const setItem = (patch: Partial<UploadItem>) =>
+        setPlainUploads((u) => u.map((it, idx) => (idx === i ? { ...it, ...patch } : it)));
+      const invalid = validateFile(file);
+      if (invalid) {
+        setItem({ status: "error", message: invalid });
+        continue;
+      }
+      setItem({ status: "uploading" });
+      try {
+        const current = images.find((x) => x.id === image.id) ?? image;
+        const updated = await setPlainVersion(current, file);
+        setImages((prev) => prev.map((x) => (x.id === updated.id ? updated : x)));
+        setItem({ status: "done" });
+        ok++;
+      } catch (e) {
+        setItem({ status: "error", message: (e as Error).message });
+      }
+    }
+    if (ok > 0) flash(`已設定 ${ok} 張作品的無字版。`);
+  }
+
+  async function dropPlain(img: AdminImage) {
+    if (!window.confirm(`要移除「${img.title}」的無字版嗎？粉絲將無法再選擇「拿掉文字」。`)) return;
+    await run(async () => {
+      const updated = await removePlainVersion(img);
+      setImages((prev) => prev.map((i) => (i.id === updated.id ? updated : i)));
+      flash(`已移除「${img.title}」的無字版。`);
     });
   }
 
@@ -234,6 +298,32 @@ export default function AdminImages() {
       </section>
 
       <section className="card stack">
+        <h2>無字版（選用）</h2>
+        <p className="muted tiny">
+          作品上的文字（例如「收到」）是畫在圖裡的。若另外準備一張<strong>同樣構圖但沒有文字</strong>的圖，上傳成「無字版」，粉絲就能在編輯器選擇「拿掉文字」，再加上自己的文字。無字版原圖同樣存放在私有空間，下載需要密碼。
+        </p>
+        <p className="muted tiny">
+          批次上傳會依<strong>檔名</strong>對應作品：檔名去掉編號與「_無字」「-notext」等字尾後，要和作品名稱相同。例如作品「received」可對應「01_received_無字.png」。也可以在下方清單對單張作品按「無字版」。
+        </p>
+        <input ref={plainBatchRef} type="file" accept="image/png,image/jpeg,image/webp" multiple onChange={(e) => onPlainBatch(e.target.files)} className="file-input" data-testid="plain-batch-input" />
+        {plainUploads.length > 0 && (
+          <ul className="upload-list">
+            {plainUploads.map((u, i) => (
+              <li key={i} className={`up-${u.status}`}>
+                <span>{u.name}</span>
+                <span>
+                  {u.status === "waiting" && "等待中"}
+                  {u.status === "uploading" && "上傳中…"}
+                  {u.status === "done" && "✓ 完成"}
+                  {u.status === "error" && `✕ ${u.message}`}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      <section className="card stack">
         <h2>② 發布</h2>
         <p className="muted tiny">在下方清單勾選要發布的草稿（預設全選），確認名稱、分類、排序後按「發布」。</p>
         <label className="check">
@@ -297,6 +387,7 @@ export default function AdminImages() {
                       <span className={`badge ${img.is_published ? "ok" : "warn"}`}>{img.is_published ? "已發布" : "草稿"}</span>
                       {img.is_monthly && <span className="badge pink">本月</span>}
                       {!img.is_downloadable && <span className="badge gray">不可下載</span>}
+                      {img.plain_preview_path && <span className="badge ok">有無字版</span>}
                       <span className="tag">{catName.get(img.category_id ?? "") ?? "未分類"}</span>
                     </div>
                     <div className="tiny muted">
@@ -317,6 +408,22 @@ export default function AdminImages() {
                     >
                       替換
                     </button>
+                    <button
+                      className="btn small ghost"
+                      onClick={() => {
+                        plainTarget.current = img;
+                        plainRef.current?.click();
+                      }}
+                      disabled={busy}
+                      title="上傳同一張作品沒有文字的版本"
+                    >
+                      {img.plain_preview_path ? "換無字版" : "無字版"}
+                    </button>
+                    {img.plain_preview_path && (
+                      <button className="btn small ghost" onClick={() => dropPlain(img)} disabled={busy}>
+                        移除無字版
+                      </button>
+                    )}
                     <button className="btn small ghost" onClick={() => patch(img, { is_published: !img.is_published }, img.is_published ? "已改為不公開。" : "已公開。")} disabled={busy}>
                       {img.is_published ? "取消公開" : "公開"}
                     </button>
@@ -336,6 +443,7 @@ export default function AdminImages() {
       </section>
 
       <input ref={replaceRef} type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={(e) => onReplace(e.target.files)} />
+      <input ref={plainRef} type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={(e) => onPlain(e.target.files)} data-testid="plain-input" />
 
       {editing && (
         <EditDialog

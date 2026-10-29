@@ -8,7 +8,7 @@ const PASSWORD = "kuma-correct-pw";
 
 function img(id: string, extra: Partial<ImageRow> = {}): ImageRow {
   return {
-    id, title: `作品${id.slice(-1)}`, original_path: `${id}/orig.png`, mime_type: "image/png",
+    id, title: `作品${id.slice(-1)}`, original_path: `${id}/orig.png`, plain_original_path: null, mime_type: "image/png",
     file_size: 1000, sort_order: Number(id.slice(-1)), is_published: true, is_downloadable: true, is_monthly: false, ...extra,
   };
 }
@@ -34,7 +34,7 @@ function makeDeps(over: Partial<Deps> & { version?: number; enabled?: boolean; m
     downloadState: () => Promise.resolve({ version: over.version ?? 3, configured: true, downloads_enabled: over.enabled ?? true }),
     monthlyPublic: () => Promise.resolve(over.monthly ?? true),
     listImages: (ids) => {
-      const all = [img(ID2), img(ID1), img(ID3, { is_published: false }), img(ID4, { is_monthly: true })];
+      const all = [img(ID2), img(ID1, { plain_original_path: `${ID1}/plain.png` }), img(ID3, { is_published: false }), img(ID4, { is_monthly: true })];
       return Promise.resolve(ids ? all.filter((r) => ids.includes(r.id)) : all);
     },
     signUrls: (paths, exp) => {
@@ -110,6 +110,27 @@ Deno.test("正確密碼取得憑證，可換取單張簽署網址", async () => 
   assertEquals(body.expires_in, 120);
   assertEquals(calls.signed, [`${ID1}/orig.png`]);
   assertEquals(body.items[0].original_path, undefined);
+});
+
+Deno.test("無字版：簽署無字版原圖，沒有無字版的作品不回傳", async () => {
+  const { deps, calls } = makeDeps();
+  const token = await getToken(deps);
+  const one = await handle(post({ action: "sign", token, ids: [ID1], variant: "plain" }), deps);
+  assertEquals(one.status, 200);
+  assertEquals(calls.signed, [`${ID1}/plain.png`]);
+  const none = await handle(post({ action: "sign", token, ids: [ID2], variant: "plain" }), deps);
+  assertEquals(none.status, 404);
+  const all = await handle(post({ action: "sign", token, all: true, variant: "plain" }), deps);
+  assertEquals((await all.json()).items.map((i: { id: string }) => i.id), [ID1]);
+  const bad = await handle(post({ action: "sign", token, ids: [ID1], variant: "x" }), deps);
+  assertEquals(bad.status, 400);
+});
+
+Deno.test("無字版同樣需要有效憑證", async () => {
+  const { deps, calls } = makeDeps();
+  const res = await handle(post({ action: "sign", token: "forged.token", ids: [ID1], variant: "plain" }), deps);
+  assertEquals(res.status, 401);
+  assertEquals(calls.signed.length, 0);
 });
 
 Deno.test("下載全部：排除未發布作品並依排序", async () => {

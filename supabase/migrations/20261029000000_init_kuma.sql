@@ -457,7 +457,8 @@ begin
   returning version into v_version;
 
   -- 換密碼後清除舊的錯誤紀錄
-  delete from private.download_attempts;
+  -- （Supabase 啟用 pg_safeupdate，不帶 WHERE 的 DELETE 會被拒絕，因此寫明 where true）
+  delete from private.download_attempts where true;
 
   return jsonb_build_object('ok', true, 'version', v_version);
 end;

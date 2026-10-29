@@ -88,6 +88,8 @@ select t.check('訪客不是管理員', t.try_as('anon', null, 'select public.is
 do $$ begin raise notice '--- 2. 訪客權限 ---'; end $$;
 select t.check('訪客只看到已發布作品', t.try_as('anon', null, 'select count(*)::text from public.images'), '1');
 select t.check('訪客不能讀取私有原圖路徑', t.try_as('anon', null, 'select original_path from public.images limit 1'), 'ERROR:42501');
+select t.check('訪客不能讀取無字版原圖路徑', t.try_as('anon', null, 'select plain_original_path from public.images limit 1'), 'ERROR:42501');
+select t.check('訪客可讀取無字版預覽圖路徑', t.try_as('anon', null, 'select coalesce(plain_preview_path, ''none'') from public.images limit 1'), 'none');
 select t.check('訪客可讀取公開欄位', t.try_as('anon', null, 'select title from public.images limit 1'), '測試已發布');
 select t.check('訪客不能新增作品', t.try_as('anon', null,
   $q$insert into public.images (title, preview_path, original_path, mime_type, file_size, width, height) values ('x','x','x','image/png',1,1,1) returning id::text$q$), 'ERROR:42501');
@@ -124,6 +126,10 @@ do $$ begin raise notice '--- 4. 管理員 A、B 權限 ---'; end $$;
 select t.check('A 看得到草稿', t.try_as('authenticated', :A, 'select count(*)::text from public.images'), '2');
 select t.check('B 看得到草稿', t.try_as('authenticated', :B, 'select count(*)::text from public.images'), '2');
 select t.check('A 可讀取原圖路徑', t.try_as('authenticated', :A, 'select original_path from public.images where id = ''11111111-0000-0000-0000-000000000001'''), 'o/1.png');
+select t.check('A 可設定無字版', t.try_as('authenticated', :A,
+  $q$update public.images set plain_preview_path = 'p/1-plain.webp', plain_original_path = 'o/1-plain.png' where id = '11111111-0000-0000-0000-000000000001' returning plain_original_path$q$), 'o/1-plain.png');
+select t.check('無字版必須同時有預覽與原圖', t.try_as('authenticated', :A,
+  $q$update public.images set plain_preview_path = 'p/x.webp' where id = '11111111-0000-0000-0000-000000000001' returning id::text$q$), 'ERROR:23514');
 select t.check_like('A 可新增作品', t.try_as('authenticated', :A,
   $q$insert into public.images (title, preview_path, original_path, mime_type, file_size, width, height) values ('新','p','o','image/png',1,1,1) returning id::text$q$), '%-%');
 select t.check('B 可修改作品與排序', t.try_as('authenticated', :B, 'with u as (update public.images set title = ''改名'', sort_order = 5 returning 1) select count(*)::text from u'), '2');

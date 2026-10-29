@@ -34,11 +34,11 @@ function stamp() {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-async function uploadPair(id: string, file: File) {
+async function uploadPair(id: string, file: File, kind: "original" | "plain" = "original") {
   const prepared = await prepareImage(file);
   const s = stamp();
-  const originalPath = `${id}/${s}-original.${extFromMime(file.type)}`;
-  const previewPath = `${id}/${s}-preview.${prepared.previewExt}`;
+  const originalPath = `${id}/${s}-${kind}.${extFromMime(file.type)}`;
+  const previewPath = `${id}/${s}-${kind}-preview.${prepared.previewExt}`;
   const up1 = await supabase.storage.from("originals").upload(originalPath, file, { contentType: file.type, upsert: false });
   if (up1.error) fail("原圖上傳失敗", { message: up1.error.message });
   const up2 = await supabase.storage
@@ -105,6 +105,35 @@ export async function replaceImageFile(image: AdminImage, file: File): Promise<A
   return data as AdminImage;
 }
 
+/** 上傳或替換「無字版」（同一張作品沒有文字的版本，粉絲可在編輯器切換） */
+export async function setPlainVersion(image: AdminImage, file: File): Promise<AdminImage> {
+  const { originalPath, previewPath } = await uploadPair(image.id, file, "plain");
+  const { data, error } = await supabase
+    .from("images")
+    .update({ plain_preview_path: previewPath, plain_original_path: originalPath })
+    .eq("id", image.id)
+    .select("*")
+    .single();
+  if (error) {
+    await removeFiles(previewPath, originalPath);
+    fail("無字版上傳失敗", error);
+  }
+  if (image.plain_preview_path && image.plain_original_path) await removeFiles(image.plain_preview_path, image.plain_original_path);
+  return data as AdminImage;
+}
+
+export async function removePlainVersion(image: AdminImage): Promise<AdminImage> {
+  const { data, error } = await supabase
+    .from("images")
+    .update({ plain_preview_path: null, plain_original_path: null })
+    .eq("id", image.id)
+    .select("*")
+    .single();
+  if (error) fail("移除無字版失敗", error);
+  if (image.plain_preview_path && image.plain_original_path) await removeFiles(image.plain_preview_path, image.plain_original_path);
+  return data as AdminImage;
+}
+
 async function removeFiles(previewPath: string, originalPath: string) {
   await Promise.all([
     supabase.storage.from("previews").remove([previewPath]),
@@ -116,6 +145,7 @@ export async function deleteImage(image: AdminImage) {
   const { error } = await supabase.from("images").delete().eq("id", image.id);
   if (error) fail("刪除失敗", error);
   await removeFiles(image.preview_path, image.original_path);
+  if (image.plain_preview_path && image.plain_original_path) await removeFiles(image.plain_preview_path, image.plain_original_path);
 }
 
 export async function updateImage(id: string, patch: Partial<AdminImage>): Promise<AdminImage> {

@@ -184,6 +184,7 @@ function ImageCard({ image, category, onOpen }: { image: PublicImage; category?:
         <h3>{image.title}</h3>
         <p className="meta">
           {category && <span className="tag">{category}</span>}
+          {image.plain_preview_path && <span className="tag light">可拿掉文字</span>}
           {image.tags.map((t) => (
             <span key={t} className="tag light">
               {t}
