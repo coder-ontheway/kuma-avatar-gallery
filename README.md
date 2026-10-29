@@ -166,7 +166,19 @@ KUMA 工作室的熊大、兔兔原創照片大頭貼網站。粉絲可以公開
 
 ### 5. 部署 Edge Function
 
-在電腦上（需安裝 Node.js 22）：
+**方法 A：用 GitHub Actions（手機／iPad 也能做，推薦）**
+
+1. Supabase：右上角頭像 → **Account preferences** → **Access Tokens** → **Generate new token**，名稱填 `github-deploy`，複製產生的權杖（只會顯示一次）。
+2. GitHub 儲存庫 → **Settings → Secrets and variables → Actions**：
+   - **Secrets** 分頁 → New repository secret：`SUPABASE_ACCESS_TOKEN` = 上一步的權杖
+   - **Variables** 分頁 → New repository variable：`SUPABASE_PROJECT_REF` = 專案代碼（Project URL `https://<這段>.supabase.co` 中間那段）
+3. **Actions → 部署下載功能（Edge Function）→ Run workflow**。
+   第一次執行會自動產生 `DOWNLOAD_TOKEN_SECRET`（只存在 Supabase，GitHub 與執行紀錄都看不到），並把 `ALLOWED_ORIGINS` 設為 `https://<你的帳號>.github.io`。之後修改 `supabase/functions/` 推到 main 時會自動重新部署。
+
+> 存取權杖可以管理你整個 Supabase 帳號，只放在 GitHub **Secrets**（加密、不會顯示），不要貼到任何其他地方。不再需要時可到 Access Tokens 頁面撤銷。
+> 使用自訂網域時，另加 Variable `ALLOWED_ORIGINS` = `https://你的網域`。
+
+**方法 B：在電腦上用指令**（需安裝 Node.js 22）：
 
 ```bash
 git clone https://github.com/<你的帳號>/<儲存庫名稱>.git
@@ -180,14 +192,15 @@ npx supabase secrets set ALLOWED_ORIGINS="https://<你的帳號>.github.io"
 npx supabase functions deploy download --no-verify-jwt
 ```
 
-完成後 **Edge Functions** 頁面會出現 `download`。
 （Windows 沒有 openssl 時，可到 Supabase Dashboard → Edge Functions → Secrets 手動新增 `DOWNLOAD_TOKEN_SECRET`，值用密碼管理器產生至少 48 字元的隨機字串。）
+
+完成後 Supabase 的 **Edge Functions** 頁面會出現 `download`。
 
 > 為什麼 `--no-verify-jwt`：粉絲沒有帳號，函式改用「下載密碼 → 自簽短效憑證」自行驗證每一次請求。
 
 ### 6. 設定 GitHub Pages
 
-1. 把專案推到 GitHub（公開或私人儲存庫皆可；私人儲存庫使用 Pages 需視 GitHub 方案而定）。
+1. 儲存庫需為 Public（GitHub 免費方案的私人儲存庫不能使用 Pages）。
 2. **Settings → Pages → Build and deployment → Source** 選 **GitHub Actions**。
 3. **Settings → Secrets and variables → Actions → Variables** 分頁 → **New repository variable**：
    - `VITE_SUPABASE_URL` = Project URL
