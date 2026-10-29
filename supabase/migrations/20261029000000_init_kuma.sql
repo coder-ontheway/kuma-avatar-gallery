@@ -198,6 +198,7 @@ create policy "管理員可修改網站設定"
 revoke all on table public.site_settings from anon, authenticated;
 grant select on table public.site_settings to anon;
 grant select on table public.site_settings to authenticated;
+grant select on table public.site_settings to service_role;
 grant update (site_name, brand_name, announcement, facebook_url, latest_update_date,
               monthly_title, monthly_public, downloads_enabled, updated_by)
   on table public.site_settings to authenticated;
@@ -299,6 +300,8 @@ grant select (id, title, description, category_id, tags, preview_path, mime_type
               published_at, created_at, updated_at)
   on table public.images to anon;
 grant select, insert, update, delete on table public.images to authenticated;
+-- Edge Function（service_role）讀取作品清單；明確授權，建立專案時是否勾選「Automatically expose new tables」都能運作
+grant select on table public.images to service_role;
 
 -- =====================================================================
 -- 5. 下載密碼（僅存 bcrypt 雜湊）與防暴力猜測
