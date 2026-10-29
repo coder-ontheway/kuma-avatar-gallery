@@ -1,0 +1,21 @@
+# Supabase 免費方案的專案若 7 天沒有活動會被暫停。
+# 這個排程每 3 天讀取一次公開網站設定，讓專案保持活動（只讀取公開資料，不需要任何密鑰）。
+name: Supabase 保持啟用
+
+on:
+  schedule:
+    - cron: "17 3 */3 * *"
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 讀取公開網站設定
+        env:
+          URL: ${{ vars.VITE_SUPABASE_URL }}
+          KEY: ${{ vars.VITE_SUPABASE_ANON_KEY }}
+        run: |
+          if [ -z "$URL" ]; then echo "尚未設定 VITE_SUPABASE_URL，略過"; exit 0; fi
+          curl -fsS "$URL/rest/v1/site_settings?select=site_name" -H "apikey: $KEY" > /dev/null
+          echo "完成"

@@ -1,0 +1,13 @@
+node_modules/
+dist/
+*.local
+.env
+.env.*
+!.env.example
+supabase/.temp/
+supabase/.branches/
+supabase/functions/.env
+test-results/
+tests/e2e/output/
+.DS_Store
+tests/e2e/private-artworks/
