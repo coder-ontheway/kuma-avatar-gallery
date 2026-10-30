@@ -355,10 +355,10 @@ export default function AvatarEditor({ image, initialPlatform, downloadsEnabled,
     setBusy(kind);
     try {
       const variant = usePlain ? "plain" : "original";
-      const { blob } = await fetchOriginal(image.id, variant).catch(async (e) => {
+      const { blob } = await fetchOriginal(image.id, variant, kind).catch(async (e) => {
         // 憑證失效（例如密碼剛更新）時重新要求輸入一次
         if (e instanceof DownloadError && e.code === "token_invalid" && (await ensureAuth())) {
-          return fetchOriginal(image.id, variant);
+          return fetchOriginal(image.id, variant, kind);
         }
         throw e;
       });
@@ -635,7 +635,7 @@ function PhotoPanel(props: {
             <span>自訂</span>
           </label>
         </div>
-        <p className="tiny muted">選「透明」時，透明背景的 PNG 會保留透明。</p>
+        <p className="tiny muted">背景色只會出現在作品本身透明的地方；作品若已有底色，看起來不會改變。選「透明」時，透明背景的 PNG 會保留透明。</p>
       </fieldset>
     </div>
   );

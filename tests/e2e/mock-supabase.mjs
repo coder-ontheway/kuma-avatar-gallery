@@ -17,7 +17,7 @@ import { handle } from "../../supabase/functions/download/handler.ts";
 
 const JWT_SECRET = "e2e-test-jwt-secret-not-for-production-0123456789";
 const TOKEN_SECRET = "e2e-download-token-secret-not-for-production-0123456789";
-const TABLES = new Set(["images", "categories", "site_settings", "admins"]);
+const TABLES = new Set(["images", "categories", "site_settings", "admins", "image_download_stats"]);
 const RPCS = new Set(["is_admin", "set_download_password", "download_password_status"]);
 
 export function createMockSupabase({ database, storageDir, users, port }) {
@@ -367,6 +367,9 @@ export function createMockSupabase({ database, storageDir, users, port }) {
     async signUrls(paths, expiresIn) {
       const exp = Math.floor(Date.now() / 1000) + expiresIn;
       return paths.map((p) => `http://127.0.0.1:${port}/storage/v1/object/sign/originals/${p}?token=${signStorage("originals", p, exp)}`);
+    },
+    async recordDownloads(ids, kind) {
+      await asRole({ role: "service_role" }, (c) => c.query("select public.record_downloads($1::uuid[], $2)", [ids, kind]));
     },
   };
 

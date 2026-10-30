@@ -19,7 +19,7 @@ const ID3 = "00000000-0000-4000-8000-000000000003";
 const ID4 = "00000000-0000-4000-8000-000000000004";
 
 function makeDeps(over: Partial<Deps> & { version?: number; enabled?: boolean; monthly?: boolean } = {}) {
-  const calls = { verify: [] as string[], signed: [] as string[] };
+  const calls = { verify: [] as string[], signed: [] as string[], recorded: [] as string[] };
   let fails = 0;
   const deps: Deps = {
     tokenSecret: SECRET,
@@ -40,6 +40,10 @@ function makeDeps(over: Partial<Deps> & { version?: number; enabled?: boolean; m
     signUrls: (paths, exp) => {
       calls.signed.push(...paths);
       return Promise.resolve(paths.map((p) => `https://example.test/sign/${p}?exp=${exp}`));
+    },
+    recordDownloads: (ids, kind) => {
+      calls.recorded.push(`${kind}:${ids.join(",")}`);
+      return Promise.resolve();
     },
     ...over,
   };
@@ -225,4 +229,31 @@ Deno.test("伺服器錯誤時不在日誌中洩漏密碼", async () => {
   }
   assert(logged.length > 0);
   assert(logged.every((l) => !l.includes("secret-pw-should-not-leak")));
+});
+
+Deno.test("下載次數：依用途記錄，ZIP 全部下載每張各記一次", async () => {
+  const { deps, calls } = makeDeps();
+  const token = await getToken(deps);
+  assertEquals((await handle(post({ action: "sign", token, ids: [ID1], purpose: "avatar" }), deps)).status, 200);
+  assertEquals((await handle(post({ action: "sign", token, ids: [ID2] }), deps)).status, 200);
+  assertEquals((await handle(post({ action: "sign", token, ids: [ID1], variant: "plain", purpose: "original" }), deps)).status, 200);
+  assertEquals((await handle(post({ action: "sign", token, all: true }), deps)).status, 200);
+  assertEquals(calls.recorded, [`avatar:${ID1}`, `original:${ID2}`, `original:${ID1}`, `zip:${ID1},${ID2},${ID4}`]);
+});
+
+Deno.test("下載次數：未知用途回 400 且不記錄；被拒絕的下載不記錄", async () => {
+  const { deps, calls } = makeDeps();
+  const token = await getToken(deps);
+  assertEquals((await handle(post({ action: "sign", token, ids: [ID1], purpose: "hack" }), deps)).status, 400);
+  assertEquals((await handle(post({ action: "sign", token, ids: [ID3] }), deps)).status, 404);
+  assertEquals((await handle(post({ action: "sign", token: "bad", ids: [ID1] }), deps)).status, 401);
+  assertEquals(calls.recorded, []);
+});
+
+Deno.test("下載次數：統計失敗不影響下載", async () => {
+  const { deps } = makeDeps({ recordDownloads: () => Promise.reject(new Error("db down")) });
+  const token = await getToken(deps);
+  const res = await handle(post({ action: "sign", token, ids: [ID1], purpose: "avatar" }), deps);
+  assertEquals(res.status, 200);
+  assertEquals((await res.json()).items.length, 1);
 });

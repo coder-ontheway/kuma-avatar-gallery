@@ -101,7 +101,10 @@ export interface SignedItem {
 
 export type Variant = "original" | "plain";
 
-async function sign(body: { ids?: string[]; all?: boolean; variant?: Variant }): Promise<SignedItem[]> {
+/** 用途只用於後臺的下載次數統計 */
+export type Purpose = "avatar" | "original";
+
+async function sign(body: { ids?: string[]; all?: boolean; variant?: Variant; purpose?: Purpose }): Promise<SignedItem[]> {
   const token = currentToken();
   if (!token) throw new DownloadError("請先輸入下載密碼。", "token_invalid", 401);
   try {
@@ -128,9 +131,13 @@ async function fetchBlob(url: string, retries = 1): Promise<Blob> {
   }
 }
 
-/** 取得單張原圖（僅在通過密碼驗證後）；variant "plain" 取得無字版 */
-export async function fetchOriginal(id: string, variant: Variant = "original"): Promise<{ blob: Blob; item: SignedItem }> {
-  const [item] = await sign({ ids: [id], variant });
+/** 取得單張原圖（僅在通過密碼驗證後）；variant "plain" 取得無字版；purpose 為大頭貼或原圖下載 */
+export async function fetchOriginal(
+  id: string,
+  variant: Variant = "original",
+  purpose: Purpose = "original",
+): Promise<{ blob: Blob; item: SignedItem }> {
+  const [item] = await sign({ ids: [id], variant, purpose });
   if (!item) throw new DownloadError("找不到可下載的作品。", "not_found", 404);
   try {
     return { blob: await fetchBlob(item.url), item };

@@ -690,6 +690,22 @@ await step("無字版（粉絲可拿掉作品上的文字）", async () => {
   await fan.getByRole("button", { name: "關閉" }).click();
 });
 
+await step("下載次數（只有管理員看得到）", async () => {
+  const row = execFileSync("psql", ["-q", "-d", DB, "-tAc", "select s.avatar_count || '/' || s.original_count || '/' || s.zip_count from public.image_download_stats s join public.images i on i.id = s.image_id where i.title = '掰掰'"], { encoding: "utf8" }).trim();
+  const [av, orig, zipc] = row.split("/").map(Number);
+  check("下載時伺服器端有累計次數", av >= 1 && orig >= 1 && zipc >= 1, `掰掰：大頭貼 ${av}、原圖 ${orig}、ZIP ${zipc}`);
+  await pageA.reload();
+  const item = pageA.locator("[data-testid=admin-item]", { hasText: "掰掰" });
+  await item.getByTestId("download-count").waitFor();
+  const text = await item.getByTestId("download-count").innerText();
+  check("後臺每件作品顯示下載次數", text.includes(`下載 ${av + orig + zipc} 次`) && text.includes(`大頭貼 ${av}・原圖 ${orig}・ZIP ${zipc}`), text);
+  check("後臺顯示全部累計下載次數", await pageA.getByTestId("download-total").isVisible());
+  const anon = await fetch(`${API}/rest/v1/image_download_stats?select=*`, { headers: { apikey: mock.ANON_KEY } });
+  check("訪客讀不到下載次數", anon.status === 403 || (anon.ok && (await anon.json()).length === 0), `HTTP ${anon.status}`);
+  const fake = await fetch(`${API}/rest/v1/rpc/record_downloads`, { method: "POST", headers: { apikey: mock.ANON_KEY, "Content-Type": "application/json" }, body: JSON.stringify({ p_ids: [], p_kind: "avatar" }) });
+  check("訪客不能自行灌下載次數", !fake.ok, `HTTP ${fake.status}`);
+});
+
 await step("防暴力猜測", async () => {
   const codes = [];
   for (let i = 0; i < 6; i++) {

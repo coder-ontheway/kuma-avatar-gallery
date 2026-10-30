@@ -5,6 +5,8 @@ import {
   adminPreviewUrl,
   deleteImage,
   listAdminImages,
+  listDownloadStats,
+  totalDownloads,
   listCategories,
   publishImages,
   removePlainVersion,
@@ -18,7 +20,7 @@ import { formatBytes } from "../../lib/filename";
 import { titleFromFileName, validateFile } from "../../lib/imageProcessing";
 import { matchPlainFiles } from "../../lib/plainMatch";
 import { formatDate } from "../../lib/api";
-import type { AdminImage, Category } from "../../lib/types";
+import type { AdminImage, Category, DownloadStats } from "../../lib/types";
 
 type Filter = "all" | "draft" | "published";
 
@@ -50,6 +52,8 @@ export default function AdminImages() {
   const plainTarget = useRef<AdminImage | null>(null);
   const plainBatchRef = useRef<HTMLInputElement>(null);
   const [plainUploads, setPlainUploads] = useState<UploadItem[]>([]);
+  const [stats, setStats] = useState<Map<string, DownloadStats> | null>(null);
+  const [statsError, setStatsError] = useState("");
 
   async function load() {
     setLoading(true);
@@ -63,6 +67,14 @@ export default function AdminImages() {
       setError((e as Error).message);
     } finally {
       setLoading(false);
+    }
+    // 下載次數另外讀取：讀不到時不影響作品管理
+    try {
+      setStats(await listDownloadStats());
+      setStatsError("");
+    } catch (e) {
+      setStats(null);
+      setStatsError((e as Error).message);
     }
   }
 
@@ -351,6 +363,13 @@ export default function AdminImages() {
           </div>
           <button className="btn small ghost" onClick={load} disabled={loading}>重新整理</button>
         </div>
+        {stats ? (
+          <p className="tiny muted" data-testid="download-total">
+            全部作品累計下載 {[...stats.values()].reduce((n, s) => n + totalDownloads(s), 0)} 次。每按一次下載算一次；「下載全部（ZIP）」時每張作品各算一次。
+          </p>
+        ) : statsError ? (
+          <p className="tiny muted">下載次數暫時讀不到（{statsError}）。</p>
+        ) : null}
 
         {loading ? (
           <p className="muted center pad">載入中…</p>
@@ -393,6 +412,7 @@ export default function AdminImages() {
                     <div className="tiny muted">
                       {img.mime_type.replace("image/", "").toUpperCase()}｜{formatBytes(img.file_size)}｜{img.width}×{img.height}｜{formatDate(img.work_date)}｜排序 {img.sort_order}
                     </div>
+                    {stats && <DownloadCount s={stats.get(img.id)} />}
                   </div>
                   <div className="admin-actions">
                     <button className="btn small ghost" onClick={() => move(img, -1)} disabled={busy || idx <= 0} aria-label="上移">↑</button>
@@ -528,5 +548,20 @@ function EditDialog({
         </div>
       </form>
     </Modal>
+  );
+}
+
+function DownloadCount({ s }: { s: DownloadStats | undefined }) {
+  const total = totalDownloads(s);
+  return (
+    <div className="download-count" data-testid="download-count">
+      下載 <b>{total}</b> 次
+      {s && total > 0 && (
+        <>
+          （大頭貼 {s.avatar_count}・原圖 {s.original_count}・ZIP {s.zip_count}）
+          {s.last_downloaded_at && <>｜最後下載 {new Date(s.last_downloaded_at).toLocaleString("zh-TW", { timeZone: "Asia/Taipei", dateStyle: "medium", timeStyle: "short" })}</>}
+        </>
+      )}
+    </div>
   );
 }

@@ -203,4 +203,17 @@ select t.check('撤銷 B 不影響 A', t.try_as('authenticated', :A, 'select pub
 select t.check('撤銷後可登記新管理員（仍最多 2 位）', t.try_as('postgres', null, $q$insert into public.admins (user_id, display_name) values ('dddddddd-0000-0000-0000-000000000004','新管理員') returning 'ok'$q$), 'ok');
 select t.check('重新啟用 B 成功', t.try_as('postgres', null, $q$update public.admins set is_active = true where user_id = 'bbbbbbbb-0000-0000-0000-000000000002' returning (revoked_at is null)::text$q$), 'true');
 
+do $$ begin raise notice '--- 10. 下載次數統計 ---'; end $$;
+select t.check('訪客不能記錄下載次數', t.try_as('anon', null, $q$select public.record_downloads(array['11111111-0000-0000-0000-000000000001']::uuid[], 'avatar')::text$q$), 'ERROR:42501');
+select t.check('管理員也不能自行灌下載次數', t.try_as('authenticated', :A, $q$select public.record_downloads(array['11111111-0000-0000-0000-000000000001']::uuid[], 'avatar')::text$q$), 'ERROR:42501');
+select t.do_as('service_role', null, $q$select public.record_downloads(array['11111111-0000-0000-0000-000000000001']::uuid[], 'avatar')::text$q$);
+select t.do_as('service_role', null, $q$select public.record_downloads(array['11111111-0000-0000-0000-000000000001']::uuid[], 'avatar')::text$q$);
+select t.do_as('service_role', null, $q$select public.record_downloads(array['11111111-0000-0000-0000-000000000001','99999999-0000-0000-0000-000000000009']::uuid[], 'zip')::text$q$);
+select t.check('Edge Function 可累計下載次數', t.try_as('authenticated', :A, $q$select avatar_count || '/' || original_count || '/' || zip_count from public.image_download_stats where image_id = '11111111-0000-0000-0000-000000000001'$q$), '2/0/1');
+select t.check('不存在的作品不會產生統計', (select count(*)::text from public.image_download_stats where image_id = '99999999-0000-0000-0000-000000000009'), '0');
+select t.check('未知的下載類型會被拒絕', t.try_as('service_role', null, $q$select public.record_downloads(array[]::uuid[], 'hack')::text$q$), 'ERROR:22023');
+select t.check('訪客看不到下載次數', t.try_as('anon', null, 'select count(*)::text from public.image_download_stats'), 'ERROR:42501');
+select t.check('管理員 A 看得到下載次數', t.try_as('authenticated', :A, 'select count(*)::text from public.image_download_stats'), '1');
+select t.check('管理員不能修改下載次數', t.try_as('authenticated', :A, 'update public.image_download_stats set avatar_count = 999 where true returning 1'), 'ERROR:42501');
+
 do $$ begin raise notice '=== 全部權限測試通過 ==='; end $$;

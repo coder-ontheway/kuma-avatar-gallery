@@ -71,5 +71,9 @@ Deno.serve((req) =>
       const byPath = new Map(data.map((d) => [d.path, d.error ? null : d.signedUrl]));
       return paths.map((p) => byPath.get(p) ?? null);
     },
+    async recordDownloads(ids, kind) {
+      const { error } = await admin.rpc("record_downloads", { p_ids: ids, p_kind: kind });
+      if (error) throw new Error(`record rpc failed (${error.code})`);
+    },
   })
 );
