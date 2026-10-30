@@ -1232,3 +1232,9 @@ code {
 .plain-toggle .seg {
   width: 100%;
 }
+
+.download-count {
+  margin-top: 2px;
+  font-size: 0.82rem;
+  color: var(--brown, #8a5a3b);
+}

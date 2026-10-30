@@ -67,7 +67,7 @@ export default function Home() {
       <main className="page">
         <section className="hero">
           <h1>{siteName}</h1>
-          <p className="lead">熊大與兔兔的原創照片大頭貼，挑一張喜歡的，調整成 Facebook、Instagram 或 LINE 大頭貼吧！</p>
+          <p className="lead">熊大與兔兔的照片大頭貼，挑一張喜歡的，調整成 Facebook、Instagram 或 LINE 大頭貼吧！</p>
           {settings?.latest_update_date && (
             <p className="update-date">最新更新：{formatDate(settings.latest_update_date)}</p>
           )}
@@ -152,7 +152,7 @@ export default function Home() {
       <footer className="site-footer">
         <div className="page">
           <p>
-            © {new Date().getFullYear()} {brand}　熊大與兔兔照片皆為 {brand} 原創作品
+            © {new Date().getFullYear()} {brand}　熊大與兔兔照片皆為 {brand} 作品
           </p>
           {settings?.facebook_url && (
             <a href={settings.facebook_url} target="_blank" rel="noopener noreferrer">

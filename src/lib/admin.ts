@@ -2,7 +2,7 @@
 import { supabase } from "./supabase";
 import { extFromMime } from "./filename";
 import { prepareImage } from "./imageProcessing";
-import type { AdminImage, AdminUser, Category, SiteSettings } from "./types";
+import type { AdminImage, AdminUser, Category, DownloadStats, SiteSettings } from "./types";
 import { SETTINGS_COLUMNS } from "./api";
 
 function fail(prefix: string, error: { message?: string; code?: string } | null): never {
@@ -28,6 +28,19 @@ export async function listAdminImages(): Promise<AdminImage[]> {
     .order("created_at", { ascending: false });
   if (error) fail("讀取作品失敗", error);
   return data as AdminImage[];
+}
+
+/** 下載次數（由下載功能在伺服器端累計，管理員唯讀） */
+export async function listDownloadStats(): Promise<Map<string, DownloadStats>> {
+  const { data, error } = await supabase
+    .from("image_download_stats")
+    .select("image_id,avatar_count,original_count,zip_count,last_downloaded_at");
+  if (error) fail("讀取下載次數失敗", error);
+  return new Map((data as DownloadStats[]).map((d) => [d.image_id, d]));
+}
+
+export function totalDownloads(s: DownloadStats | undefined): number {
+  return s ? s.avatar_count + s.original_count + s.zip_count : 0;
 }
 
 function stamp() {

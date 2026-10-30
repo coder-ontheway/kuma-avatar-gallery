@@ -2,6 +2,7 @@
 //   action "verify"：驗證下載密碼 → 回傳 15 分鐘有效的下載憑證
 //   action "sign"  ：以下載憑證換取私有原圖的限時簽署網址（120 秒）
 //                    variant "plain" 代表下載「無字版」原圖（只回傳有無字版的作品）
+//                    purpose "avatar"／"original" 用於下載次數統計（ZIP 全部下載自動記為 "zip"）
 import { hashClient, signToken, verifyToken } from "./token.ts";
 
 export const TOKEN_TTL_SECONDS = 15 * 60;
@@ -36,6 +37,8 @@ export interface ImageRow {
   is_monthly: boolean;
 }
 
+export type DownloadKind = "avatar" | "original" | "zip";
+
 export interface Deps {
   tokenSecret: string;
   allowedOrigins: string[]; // 空陣列代表不限制來源
@@ -44,6 +47,7 @@ export interface Deps {
   monthlyPublic(): Promise<boolean>;
   listImages(ids: string[] | null): Promise<ImageRow[]>;
   signUrls(paths: string[], expiresIn: number): Promise<(string | null)[]>;
+  recordDownloads?(ids: string[], kind: DownloadKind): Promise<void>;
   now?: () => number;
 }
 
@@ -172,6 +176,12 @@ async function sign(body: Record<string, unknown>, deps: Deps, cors: Record<stri
     return json(400, { error: "bad_request", message: "未知的作品版本。" }, cors);
   }
 
+  const purpose = body.purpose ?? "original";
+  if (body.all !== true && purpose !== "avatar" && purpose !== "original") {
+    return json(400, { error: "bad_request", message: "未知的下載用途。" }, cors);
+  }
+  const kind: DownloadKind = body.all === true ? "zip" : purpose as DownloadKind;
+
   let ids: string[] | null = null;
   if (body.all !== true) {
     if (!Array.isArray(body.ids) || body.ids.length === 0 || body.ids.length > MAX_IDS) {
@@ -198,6 +208,15 @@ async function sign(body: Record<string, unknown>, deps: Deps, cors: Record<stri
   const items = rows
     .map((r, i) => ({ id: r.id, title: r.title, mime_type: r.mime_type, file_size: r.file_size, url: urls[i] }))
     .filter((r) => typeof r.url === "string");
+
+  // 統計失敗不影響粉絲下載
+  if (deps.recordDownloads && items.length > 0) {
+    try {
+      await deps.recordDownloads(items.map((r) => r.id), kind);
+    } catch (err) {
+      console.error("record downloads failed:", err instanceof Error ? err.message : "unknown");
+    }
+  }
 
   return json(200, { items, expires_in: SIGNED_URL_TTL_SECONDS }, cors);
 }

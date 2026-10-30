@@ -50,3 +50,12 @@ export interface AdminUser {
   created_at: string;
   revoked_at: string | null;
 }
+
+/** 每件作品的下載次數（只有管理員看得到） */
+export interface DownloadStats {
+  image_id: string;
+  avatar_count: number;
+  original_count: number;
+  zip_count: number;
+  last_downloaded_at: string | null;
+}
