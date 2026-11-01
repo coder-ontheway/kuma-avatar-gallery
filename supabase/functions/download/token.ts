@@ -29,11 +29,19 @@ export interface TokenPayload {
   v: number; // 下載密碼版本
   exp: number; // 到期時間（秒）
   jti: string;
+  c?: string; // 主題系列 id：系列專屬密碼發出的授權才有，只能下載該系列
 }
 
-export async function signToken(secret: string, version: number, ttlSeconds: number, now = Date.now()): Promise<{ token: string; exp: number }> {
+export async function signToken(
+  secret: string,
+  version: number,
+  ttlSeconds: number,
+  now = Date.now(),
+  collectionId?: string,
+): Promise<{ token: string; exp: number }> {
   const exp = Math.floor(now / 1000) + ttlSeconds;
   const payload: TokenPayload = { v: version, exp, jti: crypto.randomUUID() };
+  if (collectionId) payload.c = collectionId;
   const body = b64url(enc.encode(JSON.stringify(payload)));
   const sig = new Uint8Array(await crypto.subtle.sign("HMAC", await hmacKey(secret), enc.encode(body)));
   return { token: `${body}.${b64url(sig)}`, exp };
@@ -48,6 +56,7 @@ export async function verifyToken(secret: string, token: unknown, now = Date.now
     if (!ok) return null;
     const payload = JSON.parse(new TextDecoder().decode(fromB64url(parts[0]))) as TokenPayload;
     if (typeof payload.v !== "number" || typeof payload.exp !== "number") return null;
+    if (payload.c !== undefined && typeof payload.c !== "string") return null;
     if (payload.exp * 1000 <= now) return null;
     return payload;
   } catch {

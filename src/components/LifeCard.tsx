@@ -120,13 +120,13 @@ export function CardModal({
       setMsg({ type: "error", text: "目前暫停開放下載，請留意粉專公告。" });
       return;
     }
-    if (!(await ensureAuth())) return;
+    if (!(await ensureAuth(collection.id))) return;
     setBusy(true);
     try {
       try {
         await downloadCard(collection, work, manifesto);
       } catch (e) {
-        if (e instanceof DownloadError && e.code === "token_invalid" && (await ensureAuth())) await downloadCard(collection, work, manifesto);
+        if (e instanceof DownloadError && e.code === "token_invalid" && (await ensureAuth(collection.id))) await downloadCard(collection, work, manifesto);
         else throw e;
       }
       setMsg({ type: "ok", text: "收藏卡下載完成！" });
@@ -227,6 +227,7 @@ export function LifeAvatarEditor({
       onClose={onClose}
       previewOnly={previewOnly}
       source="collection"
+      collectionId={collection.id}
       life={life}
       fileTitle={lifeAvatarTitle(work)}
     />

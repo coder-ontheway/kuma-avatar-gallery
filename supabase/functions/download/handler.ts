@@ -5,6 +5,8 @@
 //                    purpose "avatar"／"original" 用於下載次數統計（ZIP 全部下載自動記為 "zip"）
 //                    source "collection" 代表「熊兔生命共同體」等主題系列作品（collection_works 表），
 //                    與原本收藏館（images 表）分開查詢，互不影響
+//   主題系列有自己的下載密碼：verify 時帶 collection（系列 id）就以該系列的專屬密碼驗證，
+//   發出的授權只能下載該系列；原本的密碼發出的授權不能下載系列作品，反之亦然。
 import { hashClient, signToken, verifyToken } from "./token.ts";
 
 export const TOKEN_TTL_SECONDS = 15 * 60;
@@ -44,6 +46,7 @@ export type DownloadKind = "avatar" | "original" | "zip";
 /** 主題系列作品（collection_works）；待上傳的作品沒有原圖路徑 */
 export interface CollectionWorkRow {
   id: string;
+  collection_id: string;
   work_number: number;
   nickname: string;
   title: string;
@@ -64,6 +67,8 @@ export interface Deps {
   monthlyPublic(): Promise<boolean>;
   listImages(ids: string[] | null): Promise<ImageRow[]>;
   listCollectionWorks?(ids: string[] | null): Promise<CollectionWorkRow[]>;
+  verifyCollectionPassword?(collectionId: string, password: string, clientHash: string): Promise<VerifyResult>;
+  collectionDownloadState?(collectionId: string): Promise<{ version: number; configured: boolean }>;
   signUrls(paths: string[], expiresIn: number): Promise<(string | null)[]>;
   recordDownloads?(ids: string[], kind: DownloadKind): Promise<void>;
   now?: () => number;
@@ -137,16 +142,23 @@ async function verify(req: Request, body: Record<string, unknown>, deps: Deps, c
     return json(401, { error: "wrong_password", message: "下載密碼不正確，請再試一次。" }, cors);
   }
 
+  const collectionId = body.collection;
+  if (collectionId !== undefined && (typeof collectionId !== "string" || !UUID_RE.test(collectionId) || !deps.verifyCollectionPassword)) {
+    return json(400, { error: "bad_request", message: "未知的作品系列。" }, cors);
+  }
+
   const state = await deps.downloadState();
   if (!state.downloads_enabled) {
     return json(403, { error: "downloads_disabled", message: "目前暫停開放下載，請留意粉專公告。" }, cors);
   }
 
   const clientHash = await hashClient(deps.tokenSecret, clientIp(req));
-  const result = await deps.verifyPassword(password, clientHash);
+  const result = collectionId
+    ? await deps.verifyCollectionPassword!(collectionId as string, password, clientHash)
+    : await deps.verifyPassword(password, clientHash);
 
   if (result.ok && typeof result.version === "number") {
-    const { token, exp } = await signToken(deps.tokenSecret, result.version, TOKEN_TTL_SECONDS, now());
+    const { token, exp } = await signToken(deps.tokenSecret, result.version, TOKEN_TTL_SECONDS, now(), collectionId as string | undefined);
     return json(200, { token, expires_at: exp }, cors);
   }
 
@@ -162,7 +174,10 @@ async function verify(req: Request, body: Record<string, unknown>, deps: Deps, c
     case "busy":
       return json(429, { error: "busy", retry_after: result.retry_after ?? 900, message: "目前嘗試次數過多，請稍後再試。" }, cors);
     case "not_configured":
-      return json(503, { error: "password_not_set", message: "網站尚未設定下載密碼，請聯絡網站管理員。" }, cors);
+      return json(503, {
+        error: "password_not_set",
+        message: collectionId ? "這個系列尚未設定專屬下載密碼，請聯絡網站管理員。" : "網站尚未設定下載密碼，請聯絡網站管理員。",
+      }, cors);
     default: {
       const remaining = result.remaining ?? 0;
       return json(401, {
@@ -185,8 +200,23 @@ async function sign(body: Record<string, unknown>, deps: Deps, cors: Record<stri
   if (!state.downloads_enabled) {
     return json(403, { error: "downloads_disabled", message: "目前暫停開放下載，請留意粉專公告。" }, cors);
   }
-  if (state.version !== payload.v) {
-    return json(401, { error: "token_invalid", message: "下載密碼已更新，請重新輸入下載密碼。" }, cors);
+  const isCollection = body.source === "collection";
+  if (isCollection) {
+    // 系列作品只接受該系列專屬密碼發出的授權
+    if (!payload.c || !deps.collectionDownloadState) {
+      return json(401, { error: "token_invalid", message: "請輸入這個系列的專屬下載密碼。" }, cors);
+    }
+    const cs = await deps.collectionDownloadState(payload.c);
+    if (!cs.configured || cs.version !== payload.v) {
+      return json(401, { error: "token_invalid", message: "下載密碼已更新，請重新輸入下載密碼。" }, cors);
+    }
+  } else {
+    if (payload.c) {
+      return json(401, { error: "token_invalid", message: "請輸入下載密碼。" }, cors);
+    }
+    if (state.version !== payload.v) {
+      return json(401, { error: "token_invalid", message: "下載密碼已更新，請重新輸入下載密碼。" }, cors);
+    }
   }
 
   const variant = body.variant ?? "original";
@@ -211,7 +241,7 @@ async function sign(body: Record<string, unknown>, deps: Deps, cors: Record<stri
     ids = [...new Set(body.ids as string[])];
   }
 
-  if (body.source === "collection") return await signCollection(ids, variant, deps, cors);
+  if (isCollection) return await signCollection(payload.c!, ids, variant, deps, cors);
   if (body.source !== undefined && body.source !== "images") {
     return json(400, { error: "bad_request", message: "未知的作品來源。" }, cors);
   }
@@ -250,6 +280,7 @@ function pad3(n: number) {
 
 /** 主題系列作品：只回傳「已公開系列」中「已公開、可下載、已上傳照片」的作品 */
 async function signCollection(
+  collectionId: string,
   ids: string[] | null,
   variant: unknown,
   deps: Deps,
@@ -259,7 +290,7 @@ async function signCollection(
     return json(400, { error: "bad_request", message: "未知的作品版本。" }, cors);
   }
   const rows = (await deps.listCollectionWorks(ids))
-    .filter((r) => r.collection_public && r.is_published && r.is_downloadable && r.original_path && r.mime_type && r.file_size)
+    .filter((r) => r.collection_id === collectionId && r.collection_public && r.is_published && r.is_downloadable && r.original_path && r.mime_type && r.file_size)
     .sort((a, b) => a.sort_order - b.sort_order || a.work_number - b.work_number);
   if (rows.length === 0) {
     return json(404, { error: "not_found", message: "找不到可下載的作品。" }, cors);

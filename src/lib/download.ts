@@ -5,6 +5,16 @@ import { splitIntoParts, uniqueZipNames } from "./filename";
 
 const TOKEN_KEY = "kuma_download_token";
 
+/**
+ * 下載授權的範圍：null 代表原本收藏館（原本的下載密碼），
+ * 字串代表主題系列 id（該系列的專屬下載密碼）。兩者的授權分開存放、互不通用。
+ */
+export type AuthScope = string | null;
+
+function keyFor(scope: AuthScope) {
+  return scope ? `${TOKEN_KEY}:c:${scope}` : TOKEN_KEY;
+}
+
 export class DownloadError extends Error {
   constructor(message: string, public code: string, public status: number) {
     super(message);
@@ -16,13 +26,13 @@ interface StoredToken {
   exp: number;
 }
 
-export function getToken(): string | null {
+export function getToken(scope: AuthScope = null): string | null {
   try {
-    const raw = sessionStorage.getItem(TOKEN_KEY);
+    const raw = sessionStorage.getItem(keyFor(scope));
     if (!raw) return null;
     const t = JSON.parse(raw) as StoredToken;
     if (t.exp * 1000 - Date.now() < 15_000) {
-      sessionStorage.removeItem(TOKEN_KEY);
+      sessionStorage.removeItem(keyFor(scope));
       return null;
     }
     return t.token;
@@ -31,9 +41,10 @@ export function getToken(): string | null {
   }
 }
 
-export function clearToken() {
+export function clearToken(scope: AuthScope = null) {
+  memoryTokens.delete(keyFor(scope));
   try {
-    sessionStorage.removeItem(TOKEN_KEY);
+    sessionStorage.removeItem(keyFor(scope));
   } catch {
     /* 無法使用 sessionStorage 時忽略 */
   }
@@ -66,29 +77,33 @@ async function call(body: Record<string, unknown>) {
   return data;
 }
 
-/** 以下載密碼換取 15 分鐘有效的下載憑證（密碼只送到 Edge Function，前端不比對） */
-export async function verifyPassword(password: string): Promise<void> {
-  const data = await call({ action: "verify", password });
+/**
+ * 以下載密碼換取 15 分鐘有效的下載憑證（密碼只送到 Edge Function，前端不比對）。
+ * scope 為系列 id 時以該系列的專屬密碼驗證。
+ */
+export async function verifyPassword(password: string, scope: AuthScope = null): Promise<void> {
+  const data = await call(scope ? { action: "verify", password, collection: scope } : { action: "verify", password });
   const token = data.token as string;
   const exp = data.expires_at as number;
   try {
-    sessionStorage.setItem(TOKEN_KEY, JSON.stringify({ token, exp }));
+    sessionStorage.setItem(keyFor(scope), JSON.stringify({ token, exp }));
   } catch {
-    memoryToken = { token, exp };
+    memoryTokens.set(keyFor(scope), { token, exp });
   }
 }
 
-let memoryToken: StoredToken | null = null;
+const memoryTokens = new Map<string, StoredToken>();
 
-function currentToken(): string | null {
-  const t = getToken();
+function currentToken(scope: AuthScope): string | null {
+  const t = getToken(scope);
   if (t) return t;
-  if (memoryToken && memoryToken.exp * 1000 - Date.now() > 15_000) return memoryToken.token;
+  const m = memoryTokens.get(keyFor(scope));
+  if (m && m.exp * 1000 - Date.now() > 15_000) return m.token;
   return null;
 }
 
-export function hasValidToken(): boolean {
-  return currentToken() !== null;
+export function hasValidToken(scope: AuthScope = null): boolean {
+  return currentToken(scope) !== null;
 }
 
 export interface SignedItem {
@@ -107,17 +122,17 @@ export type Purpose = "avatar" | "original" | "card";
 /** 作品來源：原本收藏館（images）或主題系列（collection_works） */
 export type Source = "images" | "collection";
 
-async function sign(body: { ids?: string[]; all?: boolean; variant?: Variant; purpose?: Purpose; source?: Source }): Promise<SignedItem[]> {
-  const token = currentToken();
+async function sign(
+  body: { ids?: string[]; all?: boolean; variant?: Variant; purpose?: Purpose; source?: Source },
+  scope: AuthScope = null,
+): Promise<SignedItem[]> {
+  const token = currentToken(scope);
   if (!token) throw new DownloadError("請先輸入下載密碼。", "token_invalid", 401);
   try {
     const data = await call({ action: "sign", token, ...body });
     return data.items as SignedItem[];
   } catch (e) {
-    if (e instanceof DownloadError && e.code === "token_invalid") {
-      clearToken();
-      memoryToken = null;
-    }
+    if (e instanceof DownloadError && e.code === "token_invalid") clearToken(scope);
     throw e;
   }
 }
@@ -134,14 +149,20 @@ async function fetchBlob(url: string, retries = 1): Promise<Blob> {
   }
 }
 
-/** 取得單張原圖（僅在通過密碼驗證後）；variant "plain" 取得無字版；purpose 為大頭貼或原圖下載 */
+/**
+ * 取得單張原圖（僅在通過密碼驗證後）；variant "plain" 取得無字版；purpose 為大頭貼或原圖下載。
+ * 系列作品（source "collection"）需傳入系列 id，使用該系列專屬密碼的授權。
+ */
 export async function fetchOriginal(
   id: string,
   variant: Variant = "original",
   purpose: Purpose = "original",
   source: Source = "images",
+  collectionId: AuthScope = null,
 ): Promise<{ blob: Blob; item: SignedItem }> {
-  const [item] = await sign(source === "collection" ? { ids: [id], purpose, source } : { ids: [id], variant, purpose });
+  const [item] = await (source === "collection"
+    ? sign({ ids: [id], purpose, source }, collectionId)
+    : sign({ ids: [id], variant, purpose }));
   if (!item) throw new DownloadError("找不到可下載的作品。", "not_found", 404);
   try {
     return { blob: await fetchBlob(item.url), item };
@@ -151,8 +172,8 @@ export async function fetchOriginal(
 }
 
 /** 主題系列：一次取得多款（或全部）作品原圖的限時網址 */
-export async function signCollection(ids: string[] | "all", purpose: Purpose = "card"): Promise<SignedItem[]> {
-  return sign(ids === "all" ? { all: true, source: "collection" } : { ids, purpose, source: "collection" });
+export async function signCollection(collectionId: string, ids: string[] | "all", purpose: Purpose = "card"): Promise<SignedItem[]> {
+  return sign(ids === "all" ? { all: true, source: "collection" } : { ids, purpose, source: "collection" }, collectionId);
 }
 
 export async function fetchSigned(item: SignedItem): Promise<Blob> {

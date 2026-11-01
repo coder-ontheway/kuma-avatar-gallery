@@ -5,12 +5,15 @@ import { adminPreviewUrl } from "../../lib/admin";
 import {
   createWork,
   deleteWork,
+  getCollectionPasswordStatus,
   getLifeCollection,
   listWorks,
   saveWorkOrder,
+  setCollectionPassword,
   setWorkPhoto,
   updateCollection,
   updateWork,
+  type LifePasswordStatus,
 } from "../../lib/adminLife";
 import { formatNo } from "../../lib/card";
 import { formatBytes } from "../../lib/filename";
@@ -233,6 +236,8 @@ export default function AdminLife() {
       {error && <p className="error card" role="alert">{error}</p>}
       {notice && <p className="success card" role="status">{notice}</p>}
 
+      <LifePasswordForm collectionId={collection.id} />
+
       <CollectionForm collection={collection} busy={busy} onSave={(p) => run(async () => {
         setCollection(await updateCollection(collection.id, p));
         flash("系列設定已儲存。");
@@ -391,6 +396,77 @@ export default function AdminLife() {
       {avatarFor && <LifeAvatarEditor collection={collection} work={avatarFor} platform="facebook" downloadsEnabled={false} onClose={() => setAvatarFor(null)} previewOnly />}
       {cardFor && <CardModal collection={collection} work={cardFor} downloadsEnabled={false} onClose={() => setCardFor(null)} previewOnly />}
     </div>
+  );
+}
+
+/** 生命共同體專屬粉絲下載密碼（與原本收藏館的下載密碼分開） */
+function LifePasswordForm({ collectionId }: { collectionId: string }) {
+  const [status, setStatus] = useState<LifePasswordStatus | null>(null);
+  const [loadError, setLoadError] = useState("");
+  const [pw, setPw] = useState("");
+  const [pw2, setPw2] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<{ type: "ok" | "error"; text: string } | null>(null);
+
+  useEffect(() => {
+    getCollectionPasswordStatus(collectionId).then(setStatus, (e) => setLoadError((e as Error).message));
+  }, [collectionId]);
+
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    setMsg(null);
+    if (pw.length < 6 || pw.length > 64) return setMsg({ type: "error", text: "下載密碼長度須為 6 到 64 個字元。" });
+    if (pw !== pw2) return setMsg({ type: "error", text: "兩次輸入的密碼不一致。" });
+    setBusy(true);
+    try {
+      await setCollectionPassword(collectionId, pw);
+      setPw("");
+      setPw2("");
+      setMsg({ type: "ok", text: "生命共同體專屬下載密碼已更新。舊密碼與先前發出的生命共同體下載授權都已立即失效；原本收藏館的密碼不受影響。" });
+      setStatus(await getCollectionPasswordStatus(collectionId));
+    } catch (err) {
+      setMsg({ type: "error", text: (err as Error).message });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <form className="card stack" onSubmit={submit} data-testid="life-password-form">
+      <h2>生命共同體專屬下載密碼</h2>
+      <p className="muted tiny">
+        目前狀態：
+        {loadError ? (
+          <strong className="error">{loadError}</strong>
+        ) : !status ? (
+          "讀取中…"
+        ) : status.configured ? (
+          <>已設定（第 {status.version} 版{status.updated_at ? `，${new Date(status.updated_at).toLocaleString("zh-TW")}` : ""}{status.updated_by_name ? ` 由 ${status.updated_by_name} 更新` : ""}）</>
+        ) : (
+          <strong className="error">尚未設定，粉絲目前無法下載生命共同體的大頭貼與收藏卡</strong>
+        )}
+      </p>
+      <p className="muted tiny">
+        這組密碼只用於生命共同體（大頭貼、收藏卡、ZIP），和「網站設定」裡原本收藏館的下載密碼分開：兩組密碼互相不能通用。
+        密碼只以雜湊形式存放，任何人（包含管理員）都無法查看；忘記時直接設定新密碼即可。
+      </p>
+      <div className="grid-2">
+        <label className="field">
+          <span>新的專屬下載密碼（6～64 字元）</span>
+          <input type="password" autoComplete="new-password" value={pw} onChange={(e) => setPw(e.target.value)} />
+        </label>
+        <label className="field">
+          <span>再輸入一次</span>
+          <input type="password" autoComplete="new-password" value={pw2} onChange={(e) => setPw2(e.target.value)} />
+        </label>
+      </div>
+      {msg && <p className={msg.type === "ok" ? "success" : "error"} role="status">{msg.text}</p>}
+      <div>
+        <button className="btn primary" disabled={busy || Boolean(loadError)}>
+          {status?.configured ? "更換專屬下載密碼" : "設定專屬下載密碼"}
+        </button>
+      </div>
+    </form>
   );
 }
 

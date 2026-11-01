@@ -204,7 +204,7 @@ export default function LifeHome() {
                   生命共同體收藏卡 <small>{works.length} 張一套</small>
                 </h2>
               </div>
-              <p className="muted">每一款都有自己的收藏卡（1200 × 1800 高畫質圖片）。可以單張下載、勾選多張下載，或一次下載完整一套 ZIP。下載需要粉絲下載密碼。</p>
+              <p className="muted">每一款都有自己的收藏卡（1200 × 1800 高畫質圖片）。可以單張下載、勾選多張下載，或一次下載完整一套 ZIP。下載需要生命共同體專屬下載密碼。</p>
               <div className="row wrap">
                 <button type="button" className={`btn small ${selectMode ? "primary" : "ghost"}`} onClick={() => setSelectMode(!selectMode)} aria-pressed={selectMode}>
                   {selectMode ? "完成選擇" : "選擇多張"}
@@ -302,14 +302,14 @@ function CardZipButtons({
       setMsg({ type: "error", text: "請先點「選擇多張」，再勾選想要的收藏卡。" });
       return;
     }
-    if (!(await ensureAuth())) return;
+    if (!(await ensureAuth(collection.id))) return;
     setProgress({ done: 0, total: 0 });
     try {
       let r;
       try {
         r = await downloadCardsZip(collection, works, ids, setProgress);
       } catch (e) {
-        if (e instanceof DownloadError && e.code === "token_invalid" && (await ensureAuth())) r = await downloadCardsZip(collection, works, ids, setProgress);
+        if (e instanceof DownloadError && e.code === "token_invalid" && (await ensureAuth(collection.id))) r = await downloadCardsZip(collection, works, ids, setProgress);
         else throw e;
       }
       setMsg(

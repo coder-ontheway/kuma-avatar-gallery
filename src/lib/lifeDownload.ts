@@ -49,7 +49,7 @@ async function renderFromOriginal(blob: Blob, info: CardInfo, work: CollectionWo
 
 /** 單張收藏卡（可帶粉絲自己的宣言） */
 export async function downloadCard(collection: Collection, work: CollectionWork, manifesto?: string): Promise<void> {
-  const [item] = await signCollection([work.id], "card");
+  const [item] = await signCollection(collection.id, [work.id], "card");
   if (!item) throw new DownloadError("找不到可下載的作品。", "not_found", 404);
   const blob = await fetchSigned(item);
   const out = await renderFromOriginal(blob, cardInfo(collection, work, manifesto), work);
@@ -68,7 +68,7 @@ export async function downloadCardsZip(
   ids: string[] | "all",
   onProgress: (p: CardZipProgress) => void,
 ): Promise<{ files: number; failed: string[] }> {
-  const items = await signCollection(ids === "all" ? "all" : ids, "card");
+  const items = await signCollection(collection.id, ids === "all" ? "all" : ids, "card");
   const byId = new Map(works.map((w) => [w.id, w]));
   const entries: Record<string, [Uint8Array, { level: 0 }]> = {};
   const failed: string[] = [];

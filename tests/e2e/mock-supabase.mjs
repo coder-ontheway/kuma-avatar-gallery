@@ -18,7 +18,7 @@ import { handle } from "../../supabase/functions/download/handler.ts";
 const JWT_SECRET = "e2e-test-jwt-secret-not-for-production-0123456789";
 const TOKEN_SECRET = "e2e-download-token-secret-not-for-production-0123456789";
 const TABLES = new Set(["images", "categories", "site_settings", "admins", "image_download_stats", "collections", "collection_works"]);
-const RPCS = new Set(["is_admin", "set_download_password", "download_password_status"]);
+const RPCS = new Set(["is_admin", "set_download_password", "download_password_status", "set_collection_download_password", "collection_download_password_status"]);
 
 export function createMockSupabase({ database, storageDir, users, port }) {
   const pool = new pg.Pool({ database, user: process.env.PGUSER || "root", host: "/var/run/postgresql", max: 8 });
@@ -348,6 +348,16 @@ export function createMockSupabase({ database, storageDir, users, port }) {
       const r = await asRole({ role: "service_role" }, (c) => c.query("select public.verify_download_password($1, $2) as r", [password, clientHash]));
       return r.rows[0].r;
     },
+    async verifyCollectionPassword(collectionId, password, clientHash) {
+      const r = await asRole({ role: "service_role" }, (c) =>
+        c.query("select public.verify_collection_download_password($1::uuid, $2, $3) as r", [collectionId, password, clientHash]),
+      );
+      return r.rows[0].r;
+    },
+    async collectionDownloadState(collectionId) {
+      const r = await asRole({ role: "service_role" }, (c) => c.query("select public.collection_download_state($1::uuid) as r", [collectionId]));
+      return r.rows[0].r;
+    },
     async downloadState() {
       const r = await asRole({ role: "service_role" }, (c) => c.query("select public.download_state() as r"));
       return r.rows[0].r;
@@ -369,7 +379,7 @@ export function createMockSupabase({ database, storageDir, users, port }) {
     async listCollectionWorks(ids) {
       const r = await asRole({ role: "service_role" }, (c) =>
         c.query(
-          `select w.id, w.work_number, w.nickname, w.title, w.original_path, w.mime_type, w.file_size::int, w.sort_order,
+          `select w.id, w.collection_id::text, w.work_number, w.nickname, w.title, w.original_path, w.mime_type, w.file_size::int, w.sort_order,
                   w.is_published, w.is_downloadable, c.is_published as collection_public
              from public.collection_works w join public.collections c on c.id = w.collection_id
             where w.is_published and w.is_downloadable and c.is_published and w.original_path is not null ${ids ? "and w.id::text = any($1)" : ""}`,

@@ -135,6 +135,8 @@ interface Props {
   previewOnly?: boolean;
   /** 作品來源（下載時使用）；預設為原本的收藏館 */
   source?: Source;
+  /** 主題系列 id（source 為 "collection" 時使用該系列的專屬下載密碼） */
+  collectionId?: string;
   /** 熊兔生命共同體模式 */
   life?: LifeOptions;
   /** 下載檔名前綴（例如 No.001_熊兔共生體） */
@@ -143,7 +145,7 @@ interface Props {
 
 type DragState = { kind: "image" } | { kind: "text"; id: string; offX: number; offY: number } | null;
 
-export default function AvatarEditor({ image, initialPlatform, downloadsEnabled, onClose, previewOnly, source = "images", life, fileTitle: fileTitleProp }: Props) {
+export default function AvatarEditor({ image, initialPlatform, downloadsEnabled, onClose, previewOnly, source = "images", collectionId, life, fileTitle: fileTitleProp }: Props) {
   const { ensureAuth } = useDownloadAuth();
   const [platform, setPlatform] = useState<Platform>(initialPlatform);
   const [panel, setPanel] = useState<"photo" | "text">(life ? "text" : "photo");
@@ -460,15 +462,16 @@ export default function AvatarEditor({ image, initialPlatform, downloadsEnabled,
       setMessage({ type: "error", text: "目前暫停開放下載，請留意粉專公告。" });
       return;
     }
-    const ok = await ensureAuth();
+    const scope = source === "collection" ? (collectionId ?? null) : null;
+    const ok = await ensureAuth(scope);
     if (!ok) return;
     setBusy(kind);
     try {
       const variant = usePlain ? "plain" : "original";
-      const { blob } = await fetchOriginal(image.id, variant, kind, source).catch(async (e) => {
+      const { blob } = await fetchOriginal(image.id, variant, kind, source, scope).catch(async (e) => {
         // 憑證失效（例如密碼剛更新）時重新要求輸入一次
-        if (e instanceof DownloadError && e.code === "token_invalid" && (await ensureAuth())) {
-          return fetchOriginal(image.id, variant, kind, source);
+        if (e instanceof DownloadError && e.code === "token_invalid" && (await ensureAuth(scope))) {
+          return fetchOriginal(image.id, variant, kind, source, scope);
         }
         throw e;
       });

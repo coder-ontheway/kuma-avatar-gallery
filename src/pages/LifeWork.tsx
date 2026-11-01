@@ -66,7 +66,7 @@ export default function LifeWork() {
               <button type="button" className="btn ghost big" onClick={() => setCard(true)} data-testid="open-card">
                 查看與下載收藏卡
               </button>
-              <p className="tiny muted">大頭貼與收藏卡都會用這一款的原始照片製作；下載前需要輸入粉絲下載密碼（請見 Facebook 粉專私訊）。</p>
+              <p className="tiny muted">大頭貼與收藏卡都會用這一款的原始照片製作；下載前需要輸入生命共同體專屬下載密碼（請見 Facebook 粉專私訊）。</p>
               <div className="row between life-pager">
                 {prev ? <Link to={`/life/${prev.work_number}${q}`}>← {formatNo(prev.work_number)} {prev.nickname}</Link> : <span />}
                 {next ? <Link to={`/life/${next.work_number}${q}`}>{formatNo(next.work_number)} {next.nickname} →</Link> : <span />}

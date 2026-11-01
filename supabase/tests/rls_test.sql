@@ -257,4 +257,41 @@ update public.collections set is_published = true where slug = 'one-heart-one-li
 select t.check('系列資料不影響原收藏館作品數', t.try_as('anon', null, 'select count(*)::text from public.images'), '1');
 select t.check('A 可刪除系列作品', t.try_as('authenticated', :A, 'with d as (delete from public.collection_works where work_number = 10 returning 1) select count(*)::text from d'), '1');
 
+-- =====================================================================
+-- 12. 生命共同體專屬下載密碼（與原本收藏館的密碼分開）
+-- =====================================================================
+\set CLIENT9 '''client-hash-0000000000000009'''
+select id::text as life_id from public.collections where slug = 'one-heart-one-life' \gset
+select t.check('訪客看不到專屬密碼資料表', t.try_as('anon', null, 'select count(*)::text from private.collection_download_secret'), 'ERROR:42501');
+select t.check('訪客不能設定專屬密碼', t.try_as('anon', null, format('select public.set_collection_download_password(%L, %L)::text', :'life_id', 'hacked123')), 'ERROR:42501');
+select t.check('訪客不能呼叫專屬密碼驗證', t.try_as('anon', null, format('select public.verify_collection_download_password(%L, %L, %L)::text', :'life_id', 'x', repeat('a', 32))), 'ERROR:42501');
+select t.check('訪客不能呼叫系列下載狀態', t.try_as('anon', null, format('select public.collection_download_state(%L)::text', :'life_id')), 'ERROR:42501');
+select t.check('C 不能設定專屬密碼', t.try_as('authenticated', :C, format('select public.set_collection_download_password(%L, %L)::text', :'life_id', 'hacked123')), 'ERROR:42501');
+select t.check('C 不能查看專屬密碼狀態', t.try_as('authenticated', :C, format('select public.collection_download_password_status(%L)::text', :'life_id')), 'ERROR:42501');
+select t.check('C 不能呼叫專屬密碼驗證', t.try_as('authenticated', :C, format('select public.verify_collection_download_password(%L, %L, %L)::text', :'life_id', 'x', repeat('a', 32))), 'ERROR:42501');
+select t.check('尚未設定專屬密碼：狀態為未設定', t.try_as('authenticated', :A, format('select public.collection_download_password_status(%L)->>%L', :'life_id', 'configured')), 'false');
+select t.check('尚未設定專屬密碼：驗證回報 not_configured', t.try_as('service_role', null, format('select public.verify_collection_download_password(%L, %L, %L)->>%L', :'life_id', 'kuma-test-pass-2', :CLIENT9, 'reason')), 'not_configured');
+select t.check('尚未設定專屬密碼：下載狀態 configured=false', t.try_as('service_role', null, format('select public.collection_download_state(%L)->>%L', :'life_id', 'configured')), 'false');
+select t.check('專屬密碼太短會被拒絕', t.try_as('authenticated', :A, format('select public.set_collection_download_password(%L, %L)::text', :'life_id', '123')), 'ERROR:22023');
+select t.check('不存在的系列不能設定', t.try_as('authenticated', :A, format('select public.set_collection_download_password(%L, %L)::text', 'eeeeeeee-0000-0000-0000-000000000000', 'life-pass-1')), 'ERROR:22023');
+select t.check('A 可設定專屬密碼（第 1 版）', t.do_as('authenticated', :A, format('select public.set_collection_download_password(%L, %L)->>%L', :'life_id', 'life-pass-1', 'version')), '1');
+select t.check('專屬密碼以 bcrypt 雜湊存放', (select (password_hash like '$2%' and password_hash <> 'life-pass-1')::text from private.collection_download_secret), 'true');
+select t.check('A 可看到專屬密碼狀態與更新者', t.try_as('authenticated', :A, format('select (s->>%L) || (s->>%L) || (s->>%L) from public.collection_download_password_status(%L) s', 'configured', 'version', 'updated_by_name', :'life_id')), 'true1管理員 A');
+select t.check('專屬密碼狀態不回傳雜湊', t.try_as('authenticated', :A, format('select (public.collection_download_password_status(%L) ? %L)::text', :'life_id', 'password_hash')), 'false');
+select t.check('專屬密碼驗證成功', t.do_as('service_role', null, format('select public.verify_collection_download_password(%L, %L, %L)->>%L', :'life_id', 'life-pass-1', :CLIENT9, 'version')), '1');
+select t.check('原本收藏館的密碼不能通過專屬密碼驗證', t.do_as('service_role', null, format('select public.verify_collection_download_password(%L, %L, %L)->>%L', :'life_id', 'kuma-test-pass-2', :CLIENT9, 'reason')), 'wrong');
+select t.check('專屬密碼不能通過原本收藏館的驗證', t.do_as('service_role', null, format('select public.verify_download_password(%L, %L)->>%L', 'life-pass-1', :CLIENT9, 'reason')), 'wrong');
+select t.check('原本收藏館的密碼仍然有效', t.do_as('service_role', null, format('select public.verify_download_password(%L, %L)->>%L', 'kuma-test-pass-2', :CLIENT9, 'ok')), 'true');
+select t.check('B 可更換專屬密碼（第 2 版）', t.do_as('authenticated', :B, format('select public.set_collection_download_password(%L, %L)->>%L', :'life_id', 'life-pass-2', 'version')), '2');
+select t.check('更換後下載狀態版本為 2', t.try_as('service_role', null, format('select public.collection_download_state(%L)->>%L', :'life_id', 'version')), '2');
+select t.check('更換後舊專屬密碼失效', t.do_as('service_role', null, format('select public.verify_collection_download_password(%L, %L, %L)->>%L', :'life_id', 'life-pass-1', :CLIENT9, 'reason')), 'wrong');
+select t.check('更換專屬密碼不影響原本收藏館的密碼版本', t.try_as('service_role', null, 'select public.download_state()->>''version'''), '2');
+select t.do_as('service_role', null, format('select public.verify_collection_download_password(%L, %L, %L)::text', :'life_id', 'bad', :CLIENT9));
+select t.do_as('service_role', null, format('select public.verify_collection_download_password(%L, %L, %L)::text', :'life_id', 'bad', :CLIENT9));
+select t.do_as('service_role', null, format('select public.verify_collection_download_password(%L, %L, %L)::text', :'life_id', 'bad', :CLIENT9));
+select t.do_as('service_role', null, format('select public.verify_collection_download_password(%L, %L, %L)::text', :'life_id', 'bad', :CLIENT9));
+select t.check('專屬密碼連續錯誤 5 次後鎖定', t.do_as('service_role', null, format('select public.verify_collection_download_password(%L, %L, %L)->>%L', :'life_id', 'life-pass-2', :CLIENT9, 'reason')), 'locked');
+select t.check('鎖定也適用於原本的密碼（不能換一種密碼繞過）', t.do_as('service_role', null, format('select public.verify_download_password(%L, %L)->>%L', 'kuma-test-pass-2', :CLIENT9, 'reason')), 'locked');
+select t.check('系列刪除時專屬密碼一併刪除', (select confdeltype::text from pg_constraint where conrelid = 'private.collection_download_secret'::regclass and contype = 'f' and confrelid = 'public.collections'::regclass), 'c');
+
 do $$ begin raise notice '=== 全部權限測試通過 ==='; end $$;
