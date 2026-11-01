@@ -59,3 +59,45 @@ export interface DownloadStats {
   zip_count: number;
   last_downloaded_at: string | null;
 }
+
+/** 主題系列（例：KUMA 熊兔生命共同體） */
+export interface Collection {
+  id: string;
+  slug: string;
+  name: string;
+  name_en: string;
+  tagline: string;
+  description: string;
+  /** 粉絲可選用的預設宣言 */
+  manifestos: string[];
+  sort_order: number;
+  is_published: boolean;
+}
+
+/** 系列中的單一作品；preview_path 為空代表「待上傳」 */
+export interface CollectionWork {
+  id: string;
+  collection_id: string;
+  work_number: number;
+  title: string;
+  nickname: string;
+  theme: string;
+  description: string;
+  manifesto: string;
+  protect_zones: import("./protect").ProtectZone[];
+  preview_path: string | null;
+  mime_type: string | null;
+  file_size: number | null;
+  width: number | null;
+  height: number | null;
+  sort_order: number;
+  is_published: boolean;
+  is_downloadable: boolean;
+}
+
+export interface AdminCollectionWork extends CollectionWork {
+  original_path: string | null;
+  published_at: string | null;
+  created_at: string;
+  updated_at: string;
+}

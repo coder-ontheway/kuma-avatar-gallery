@@ -124,10 +124,11 @@ export async function renderAvatarBlob(
   s: CropState,
   opts: DrawOptions,
   layers: TextLayer[] = [],
+  fixedSize?: number,
 ): Promise<Blob> {
   const visible = layers.filter((l) => l.text.trim());
   await ensureFonts(visible);
-  const size = outputSize(srcW, srcH, s, visible.length > 0);
+  const size = fixedSize ?? outputSize(srcW, srcH, s, visible.length > 0);
   const canvas = document.createElement("canvas");
   canvas.width = size;
   canvas.height = size;

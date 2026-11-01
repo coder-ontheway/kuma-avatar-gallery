@@ -41,7 +41,8 @@ import {
   type TextLayer,
 } from "../lib/textLayers";
 import { previewUrl } from "../lib/api";
-import { DownloadError, fetchOriginal, saveBlob } from "../lib/download";
+import { DownloadError, fetchOriginal, saveBlob, type Source } from "../lib/download";
+import { avoidZones, constrainCrop, defaultCrop, PLATFORM_VISIBLE, zoneOnCanvas, type ProtectZone } from "../lib/protect";
 import { avatarFileName, originalFileName } from "../lib/filename";
 
 const BACKGROUNDS: { label: string; value: string | null }[] = [
@@ -60,13 +61,48 @@ const PLATFORM_HINT: Record<Platform, string> = {
   line: "方形預覽；同時提供圓形顯示的參考效果，讓你了解不同顯示情況。下載的是方形圖片。",
 };
 
+const LIFE_HINT: Record<Platform, string> = {
+  facebook: "Facebook 圓形大頭貼：臉、耳朵與胸口愛心會保持在圓形內，拖曳或放大時不會被切掉。",
+  instagram: "Instagram 圓形大頭貼顯示較小：構圖會多留一點邊，讓兔兔耳朵完整。",
+  line: "LINE 方形大頭貼：可放得比較大，角色仍完整保留在方形內。",
+};
+
+const PLATFORMS = Object.keys(PLATFORM_LABEL) as Platform[];
+
+/** 生命共同體模式：各平台獨立裁切、保護區域、預設宣言 */
+export interface LifeOptions {
+  zones: ProtectZone[];
+  presets: string[];
+  defaultText: string;
+}
+
 interface Design {
-  crop: CropState;
+  /** 各平台的裁切；一般收藏館三個平台共用同一個裁切（維持原本行為） */
+  crops: Record<Platform, CropState>;
   layers: TextLayer[];
   bg: string | null;
 }
 
-const initialDesign = (): Design => ({ crop: initialState(), layers: [], bg: null });
+function lifeLayer(text: string): TextLayer {
+  return newLayer({ text, y: 0.88, size: 0.075, color: "#ffffff", strokeColor: "#8a5a3b", strokeWidth: 0.16 });
+}
+
+function makeInitialDesign(w: number, h: number, life?: LifeOptions): Design {
+  if (!life) {
+    const c = initialState();
+    return { crops: { facebook: c, instagram: c, line: c }, layers: [], bg: null };
+  }
+  const crops = Object.fromEntries(PLATFORMS.map((p) => [p, defaultCrop(w, h, life.zones, p)])) as Record<Platform, CropState>;
+  // 預設宣言放在下方並收進圓形範圍內（圓形大頭貼不會裁到字）
+  return { crops, layers: life.defaultText ? [fitIntoCircle(lifeLayer(life.defaultText), 0.47)] : [], bg: null };
+}
+
+/** 生命共同體大頭貼輸出尺寸：Instagram 固定 1080；Facebook／LINE 依原圖裁切像素，至少 1080、最多 2048 */
+export function lifeOutputSize(platform: Platform, srcW: number, srcH: number, crop: CropState): number {
+  if (platform === "instagram") return 1080;
+  const size = Math.min(srcW, srcH) / clampState(srcW, srcH, crop).zoom;
+  return Math.round(Math.min(2048, Math.max(1080, size)));
+}
 
 function loadImage(src: string, crossOrigin = true): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
@@ -97,14 +133,21 @@ interface Props {
   onClose: () => void;
   /** 管理員預覽模式：不顯示下載按鈕 */
   previewOnly?: boolean;
+  /** 作品來源（下載時使用）；預設為原本的收藏館 */
+  source?: Source;
+  /** 熊兔生命共同體模式 */
+  life?: LifeOptions;
+  /** 下載檔名前綴（例如 No.001_熊兔共生體） */
+  fileTitle?: string;
 }
 
 type DragState = { kind: "image" } | { kind: "text"; id: string; offX: number; offY: number } | null;
 
-export default function AvatarEditor({ image, initialPlatform, downloadsEnabled, onClose, previewOnly }: Props) {
+export default function AvatarEditor({ image, initialPlatform, downloadsEnabled, onClose, previewOnly, source = "images", life, fileTitle: fileTitleProp }: Props) {
   const { ensureAuth } = useDownloadAuth();
   const [platform, setPlatform] = useState<Platform>(initialPlatform);
-  const [panel, setPanel] = useState<"photo" | "text">("photo");
+  const [panel, setPanel] = useState<"photo" | "text">(life ? "text" : "photo");
+  const initialDesign = useCallback(() => makeInitialDesign(image.width, image.height, life), [image.width, image.height, life]);
   const [design, setDesignState] = useState<Design>(initialDesign);
   const [history, setHistory] = useState<Design[]>([]);
   const lastRecord = useRef(0);
@@ -113,7 +156,8 @@ export default function AvatarEditor({ image, initialPlatform, downloadsEnabled,
   const [plain, setPlain] = useState(false);
   const usePlain = plain && !!image.plain_preview_path;
   const sourcePath = usePlain ? image.plain_preview_path! : image.preview_path;
-  const fileTitle = usePlain ? `${image.title}_無字` : image.title;
+  const baseTitle = fileTitleProp ?? image.title;
+  const fileTitle = usePlain ? `${baseTitle}_無字` : baseTitle;
   const [img, setImg] = useState<HTMLImageElement | null>(null);
   const [loadError, setLoadError] = useState("");
   const [busy, setBusy] = useState<"" | "avatar" | "original">("");
@@ -124,13 +168,27 @@ export default function AvatarEditor({ image, initialPlatform, downloadsEnabled,
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const roundRef = useRef<HTMLCanvasElement>(null);
   const squareRef = useRef<HTMLCanvasElement>(null);
+  const miniRefs = useRef<Partial<Record<Platform, HTMLCanvasElement | null>>>({});
   const pointers = useRef(new Map<number, { x: number; y: number }>());
   const pinch = useRef<{ dist: number; mid: { x: number; y: number } } | null>(null);
   const drag = useRef<DragState>(null);
 
   const w = img?.naturalWidth ?? image.width;
   const h = img?.naturalHeight ?? image.height;
-  const { crop, layers, bg } = design;
+  const { crops, layers: rawLayers, bg } = design;
+  const crop = crops[platform];
+  const circleRadius = platform === "line" ? null : PLATFORM_VISIBLE[platform].radius;
+  // 保護區域在目前裁切畫面上的位置（生命共同體模式）
+  const ellipses = useMemo(
+    () => (life ? life.zones.map((z) => zoneOnCanvas(z, w, h, clampState(w, h, crop))) : []),
+    [life, w, h, crop],
+  );
+  // 實際顯示與下載用的文字位置：自動避開臉、耳朵與愛心（粉絲拖到保護區域上時，文字會停在最近的空位）
+  const layers = useMemo(
+    () => (ellipses.length ? rawLayers.map((l) => avoidZones(l, ellipses, circleRadius)) : rawLayers),
+    // fontTick：字型載入後文字尺寸可能改變
+    [rawLayers, ellipses, circleRadius, fontTick], // eslint-disable-line react-hooks/exhaustive-deps
+  );
   const selected = layers.find((l) => l.id === selectedId) ?? null;
 
   const designRef = useRef(design);
@@ -158,6 +216,29 @@ export default function AvatarEditor({ image, initialPlatform, downloadsEnabled,
     if (selectedId && !prev.layers.some((l) => l.id === selectedId)) setSelectedId(null);
   }
 
+  /** 生命共同體：套用預設宣言（有選取中的文字就替換內容，沒有就新增一個） */
+  function applyPreset(text: string) {
+    lastRecord.current = 0;
+    if (selected) {
+      updateLayer(selected.id, { text });
+    } else if (rawLayers.length > 0) {
+      updateLayer(rawLayers[0].id, { text });
+      setSelectedId(rawLayers[0].id);
+    } else {
+      const layer = fitIntoCircle(lifeLayer(text), 0.47);
+      setDesign((d) => ({ ...d, layers: [...d.layers, layer] }));
+      setSelectedId(layer.id);
+    }
+    lastRecord.current = 0;
+  }
+
+  function clearText() {
+    lastRecord.current = 0;
+    setDesign((d) => ({ ...d, layers: [] }));
+    lastRecord.current = 0;
+    setSelectedId(null);
+  }
+
   function resetDesign() {
     lastRecord.current = 0;
     setDesign(() => initialDesign());
@@ -166,8 +247,18 @@ export default function AvatarEditor({ image, initialPlatform, downloadsEnabled,
   }
 
   const updateCrop = useCallback(
-    (fn: (s: CropState) => CropState) => setDesign((d) => ({ ...d, crop: fn(d.crop) })),
-    [setDesign],
+    (fn: (s: CropState) => CropState) =>
+      setDesign((d) => {
+        const prev = d.crops[platform];
+        if (!life) {
+          const next = fn(prev);
+          return { ...d, crops: { facebook: next, instagram: next, line: next } };
+        }
+        // 生命共同體：只調整目前平台，且不允許切掉保護區域
+        const next = constrainCrop(w, h, prev, fn(prev), life.zones, platform);
+        return { ...d, crops: { ...d.crops, [platform]: next } };
+      }),
+    [setDesign, platform, life, w, h],
   );
 
   function updateLayer(id: string, patch: Partial<TextLayer>) {
@@ -180,7 +271,7 @@ export default function AvatarEditor({ image, initialPlatform, downloadsEnabled,
   function addLayer() {
     if (layers.length >= MAX_LAYERS) return;
     const offset = layers.length * 0.07;
-    const layer = clampLayer(newLayer({ y: Math.max(0.2, 0.74 - offset) }));
+    const layer = clampLayer(life ? fitIntoCircle(lifeLayer(life.presets[0] ?? "輸入文字"), 0.47) : newLayer({ y: Math.max(0.2, 0.74 - offset) }));
     lastRecord.current = 0;
     setDesign((d) => ({ ...d, layers: [...d.layers, layer] }));
     lastRecord.current = 0;
@@ -208,11 +299,11 @@ export default function AvatarEditor({ image, initialPlatform, downloadsEnabled,
   // 字型（含中文、表情符號）載入完成後重新繪製，避免預覽掉字
   useEffect(() => {
     let alive = true;
-    ensureFonts(layers).then(() => alive && setFontTick((t) => t + 1));
+    ensureFonts(rawLayers).then(() => alive && setFontTick((t) => t + 1));
     return () => {
       alive = false;
     };
-  }, [layers]);
+  }, [rawLayers]);
 
   // 重新繪製預覽（與下載共用 drawCrop / drawTextLayers）
   useEffect(() => {
@@ -234,12 +325,31 @@ export default function AvatarEditor({ image, initialPlatform, downloadsEnabled,
       draw(canvasRef.current);
       draw(roundRef.current);
       draw(squareRef.current);
+      // 生命共同體：三個平台各自的裁切同時預覽
+      if (life) {
+        for (const p of PLATFORMS) {
+          const canvas = miniRefs.current[p];
+          if (!canvas) continue;
+          const px = Math.round((canvas.clientWidth || 96) * Math.min(3, window.devicePixelRatio || 1));
+          if (canvas.width !== px) {
+            canvas.width = px;
+            canvas.height = px;
+          }
+          const ctx = canvas.getContext("2d");
+          if (!ctx) continue;
+          const c = clampState(w, h, crops[p]);
+          const es = life.zones.map((z) => zoneOnCanvas(z, w, h, c));
+          const r = p === "line" ? null : PLATFORM_VISIBLE[p].radius;
+          drawCrop(ctx, img, w, h, c, px, { background: bg });
+          drawTextLayers(ctx, rawLayers.map((l) => avoidZones(l, es, r)), px);
+        }
+      }
       frame = 0;
     });
     return () => {
       if (frame) cancelAnimationFrame(frame);
     };
-  }, [img, w, h, crop, layers, bg, platform, panel, fontTick]);
+  }, [img, w, h, crop, crops, rawLayers, layers, bg, platform, panel, fontTick, life]);
 
   // 滑鼠滾輪縮放
   useEffect(() => {
@@ -355,10 +465,10 @@ export default function AvatarEditor({ image, initialPlatform, downloadsEnabled,
     setBusy(kind);
     try {
       const variant = usePlain ? "plain" : "original";
-      const { blob } = await fetchOriginal(image.id, variant, kind).catch(async (e) => {
+      const { blob } = await fetchOriginal(image.id, variant, kind, source).catch(async (e) => {
         // 憑證失效（例如密碼剛更新）時重新要求輸入一次
         if (e instanceof DownloadError && e.code === "token_invalid" && (await ensureAuth())) {
-          return fetchOriginal(image.id, variant, kind);
+          return fetchOriginal(image.id, variant, kind, source);
         }
         throw e;
       });
@@ -371,7 +481,9 @@ export default function AvatarEditor({ image, initialPlatform, downloadsEnabled,
       try {
         // 以「原圖」解析度重新合成（不是截取螢幕預覽）
         const original = await loadImage(url, false);
-        const out = await renderAvatarBlob(original, original.naturalWidth, original.naturalHeight, crop, { background: bg }, layers);
+        const ow = original.naturalWidth;
+        const oh = original.naturalHeight;
+        const out = await renderAvatarBlob(original, ow, oh, crop, { background: bg }, layers, life ? lifeOutputSize(platform, ow, oh, crop) : undefined);
         saveBlob(out, avatarFileName(PLATFORM_CODE[platform], fileTitle));
         setMessage({ type: "ok", text: layers.some((l) => l.text.trim()) ? "你的專屬大頭貼下載完成！" : `${PLATFORM_LABEL[platform]} 大頭貼下載完成。` });
       } finally {
@@ -386,10 +498,11 @@ export default function AvatarEditor({ image, initialPlatform, downloadsEnabled,
 
   const minZ = minZoom(w, h);
   const circle = platform !== "line";
+  const circleLimit = life ? (circleRadius ?? 0.5) : platform === "instagram" ? SAFE_RADIUS : 0.5;
   const outside = useMemo(
-    () => layers.filter((l) => l.text.trim() && !insideCircle(clampLayer(l), platform === "instagram" ? SAFE_RADIUS : 0.5)),
+    () => layers.filter((l) => l.text.trim() && !insideCircle(clampLayer(l), circleLimit)),
     // fontTick：字型載入後文字尺寸可能改變
-    [layers, platform, fontTick], // eslint-disable-line react-hooks/exhaustive-deps
+    [layers, circleLimit, fontTick], // eslint-disable-line react-hooks/exhaustive-deps
   );
   const selClamped = selected ? clampLayer(selected) : null;
   const selLayout = selected ? layoutLayer(selected) : null;
@@ -438,9 +551,13 @@ export default function AvatarEditor({ image, initialPlatform, downloadsEnabled,
                 ) : (
                   <rect x="0.3" y="0.3" width="99.4" height="99.4" className="ring" />
                 )}
-                {(platform === "instagram" || (panel === "text" && layers.length > 0)) && (
+                {!life && (platform === "instagram" || (panel === "text" && layers.length > 0)) && (
                   <circle cx="50" cy="50" r={SAFE_RADIUS * 100} className="safe" />
                 )}
+                {life && panel === "text" &&
+                  ellipses.map((e, i) => (
+                    <ellipse key={i} cx={e.cx * 100} cy={e.cy * 100} rx={e.rx * 100} ry={e.ry * 100} className="protect" />
+                  ))}
                 {selClamped && selLayout && panel === "text" && (
                   <rect
                     x={(selClamped.x - selLayout.w / 2) * 100}
@@ -455,17 +572,20 @@ export default function AvatarEditor({ image, initialPlatform, downloadsEnabled,
               {loadError && <div className="stage-msg error">{loadError}</div>}
             </div>
             <p className="tiny muted center">拖曳圖片或文字可移動；雙指捏合或滑鼠滾輪可縮放圖片。</p>
+            {life && panel === "text" && (
+              <p className="tiny muted center">虛線範圍是熊兔的臉、耳朵與胸口愛心，文字會自動避開，不會遮住。</p>
+            )}
             {circle && outside.length > 0 && (
               <div className="warn-box" role="status">
                 <span>
-                  有 {outside.length} 個文字區塊超出圓形{platform === "instagram" ? "安全" : ""}範圍，圓形大頭貼可能會遮住。
+                  有 {outside.length} 個文字區塊超出圓形{platform === "instagram" && !life ? "安全" : ""}範圍，圓形大頭貼可能會遮住。
                 </span>
                 <button
                   type="button"
                   className="btn small ghost"
                   onClick={() => {
                     lastRecord.current = 0;
-                    setDesign((d) => ({ ...d, layers: d.layers.map((l) => (l.text.trim() ? fitIntoCircle(l) : l)) }));
+                    setDesign((d) => ({ ...d, layers: d.layers.map((l) => (l.text.trim() ? fitIntoCircle(l, life ? circleLimit : undefined) : l)) }));
                   }}
                 >
                   移入安全範圍
@@ -514,7 +634,7 @@ export default function AvatarEditor({ image, initialPlatform, downloadsEnabled,
                 }}
                 onResetCrop={() => {
                   lastRecord.current = 0;
-                  updateCrop(() => initialState());
+                  updateCrop(() => (life ? defaultCrop(w, h, life.zones, platform) : initialState()));
                 }}
                 onBg={(v) => {
                   lastRecord.current = 0;
@@ -526,6 +646,19 @@ export default function AvatarEditor({ image, initialPlatform, downloadsEnabled,
                 }}
               />
             ) : (
+              <>
+              {life && (
+                <div className="stack presets" data-testid="manifesto-presets">
+                  <span className="tiny muted">選一句宣言（可再自由修改）</span>
+                  <div className="row wrap">
+                    {life.presets.map((t) => (
+                      <button key={t} type="button" className="chip small" onClick={() => applyPreset(t)}>
+                        {t}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
               <TextPanel
                 layers={layers}
                 selected={selected}
@@ -535,6 +668,7 @@ export default function AvatarEditor({ image, initialPlatform, downloadsEnabled,
                 onChange={(patch) => selected && updateLayer(selected.id, patch)}
                 onCommitPoint={() => (lastRecord.current = 0)}
               />
+              </>
             )}
 
             <div className="row wrap">
@@ -542,10 +676,25 @@ export default function AvatarEditor({ image, initialPlatform, downloadsEnabled,
                 ↶ 撤銷
               </button>
               <button type="button" className="btn small ghost" onClick={resetDesign}>
-                重設設計
+                {life ? "恢復預設" : "重設設計"}
               </button>
+              {life && (
+                <button type="button" className="btn small ghost" onClick={clearText} disabled={rawLayers.length === 0}>
+                  恢復原始圖片（移除文字）
+                </button>
+              )}
             </div>
 
+            {life && (
+              <div className="platform-minis" role="group" aria-label="三個平台的裁切預覽">
+                {PLATFORMS.map((p) => (
+                  <button key={p} type="button" className={`mini ${platform === p ? "active" : ""}`} onClick={() => setPlatform(p)} aria-pressed={platform === p}>
+                    <canvas ref={(el) => (miniRefs.current[p] = el)} className={`mini-canvas ${p === "line" ? "" : "round"}`} data-testid={`mini-${p}`} />
+                    <span>{PLATFORM_LABEL[p]}</span>
+                  </button>
+                ))}
+              </div>
+            )}
             <div className="thumbs">
               <figure>
                 <canvas ref={roundRef} className="thumb round checker" />
@@ -556,7 +705,7 @@ export default function AvatarEditor({ image, initialPlatform, downloadsEnabled,
                 <figcaption>方形顯示</figcaption>
               </figure>
             </div>
-            <p className="hint">{PLATFORM_HINT[platform]}</p>
+            <p className="hint">{life ? LIFE_HINT[platform] : PLATFORM_HINT[platform]}</p>
 
             {!previewOnly && (
               <div className="stack">

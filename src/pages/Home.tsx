@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import AvatarEditor from "../components/AvatarEditor";
 import { useDownloadAuth } from "../components/DownloadAuth";
-import { fetchCategories, fetchPublishedImages, fetchSettings, formatDate, previewUrl } from "../lib/api";
+import { Link } from "react-router-dom";
+import { fetchCategories, fetchCollectionTeaser, fetchPublishedImages, fetchSettings, formatDate, LIFE_SLUG, previewUrl } from "../lib/api";
+import type { Collection } from "../lib/types";
 import { PLATFORM_LABEL, type Platform } from "../lib/crop";
 import { DownloadError, downloadAllZip, type ZipProgress } from "../lib/download";
 import type { Category, PublicImage, SiteSettings } from "../lib/types";
@@ -33,6 +35,16 @@ export default function Home() {
 
   useEffect(() => {
     load();
+  }, []);
+
+  // 熊兔生命共同體限定收藏館入口（獨立載入，失敗也不影響原本的收藏館）
+  const [life, setLife] = useState<{ collection: Collection; count: number; cover: string | null } | null>(null);
+  useEffect(() => {
+    let alive = true;
+    fetchCollectionTeaser(LIFE_SLUG).then((t) => alive && setLife(t));
+    return () => {
+      alive = false;
+    };
   }, []);
 
   const catName = useMemo(() => new Map(categories.map((c) => [c.id, c.name])), [categories]);
@@ -78,6 +90,19 @@ export default function Home() {
             </div>
           )}
         </section>
+
+        {life && (
+          <Link to="/life" className="life-entry" data-testid="life-entry">
+            {life.cover && <img src={previewUrl(life.cover)} alt="" className="life-entry-img" />}
+            <span className="life-entry-text">
+              <small>限定收藏館｜{life.count} 款</small>
+              <strong>熊兔生命共同體限定收藏館</strong>
+              <em>{life.collection.name_en}</em>
+              <span className="life-entry-tag">{life.collection.tagline}</span>
+              <span className="life-entry-go">進入收藏館 →</span>
+            </span>
+          </Link>
+        )}
 
         <section className="howto card" aria-labelledby="howto-title">
           <h2 id="howto-title">瀏覽與下載說明</h2>

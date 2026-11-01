@@ -3,6 +3,8 @@
 //   action "sign"  ：以下載憑證換取私有原圖的限時簽署網址（120 秒）
 //                    variant "plain" 代表下載「無字版」原圖（只回傳有無字版的作品）
 //                    purpose "avatar"／"original" 用於下載次數統計（ZIP 全部下載自動記為 "zip"）
+//                    source "collection" 代表「熊兔生命共同體」等主題系列作品（collection_works 表），
+//                    與原本收藏館（images 表）分開查詢，互不影響
 import { hashClient, signToken, verifyToken } from "./token.ts";
 
 export const TOKEN_TTL_SECONDS = 15 * 60;
@@ -39,6 +41,21 @@ export interface ImageRow {
 
 export type DownloadKind = "avatar" | "original" | "zip";
 
+/** 主題系列作品（collection_works）；待上傳的作品沒有原圖路徑 */
+export interface CollectionWorkRow {
+  id: string;
+  work_number: number;
+  nickname: string;
+  title: string;
+  original_path: string | null;
+  mime_type: string | null;
+  file_size: number | null;
+  sort_order: number;
+  is_published: boolean;
+  is_downloadable: boolean;
+  collection_public: boolean;
+}
+
 export interface Deps {
   tokenSecret: string;
   allowedOrigins: string[]; // 空陣列代表不限制來源
@@ -46,6 +63,7 @@ export interface Deps {
   downloadState(): Promise<DownloadState>;
   monthlyPublic(): Promise<boolean>;
   listImages(ids: string[] | null): Promise<ImageRow[]>;
+  listCollectionWorks?(ids: string[] | null): Promise<CollectionWorkRow[]>;
   signUrls(paths: string[], expiresIn: number): Promise<(string | null)[]>;
   recordDownloads?(ids: string[], kind: DownloadKind): Promise<void>;
   now?: () => number;
@@ -177,10 +195,10 @@ async function sign(body: Record<string, unknown>, deps: Deps, cors: Record<stri
   }
 
   const purpose = body.purpose ?? "original";
-  if (body.all !== true && purpose !== "avatar" && purpose !== "original") {
+  if (body.all !== true && purpose !== "avatar" && purpose !== "original" && !(purpose === "card" && body.source === "collection")) {
     return json(400, { error: "bad_request", message: "未知的下載用途。" }, cors);
   }
-  const kind: DownloadKind = body.all === true ? "zip" : purpose as DownloadKind;
+  const kind: DownloadKind = body.all === true ? "zip" : purpose === "card" ? "original" : purpose as DownloadKind;
 
   let ids: string[] | null = null;
   if (body.all !== true) {
@@ -191,6 +209,11 @@ async function sign(body: Record<string, unknown>, deps: Deps, cors: Record<stri
       return json(400, { error: "bad_request", message: "作品編號格式錯誤。" }, cors);
     }
     ids = [...new Set(body.ids as string[])];
+  }
+
+  if (body.source === "collection") return await signCollection(ids, variant, deps, cors);
+  if (body.source !== undefined && body.source !== "images") {
+    return json(400, { error: "bad_request", message: "未知的作品來源。" }, cors);
   }
 
   const monthlyPublic = await deps.monthlyPublic();
@@ -218,5 +241,38 @@ async function sign(body: Record<string, unknown>, deps: Deps, cors: Record<stri
     }
   }
 
+  return json(200, { items, expires_in: SIGNED_URL_TTL_SECONDS }, cors);
+}
+
+function pad3(n: number) {
+  return String(n).padStart(3, "0");
+}
+
+/** 主題系列作品：只回傳「已公開系列」中「已公開、可下載、已上傳照片」的作品 */
+async function signCollection(
+  ids: string[] | null,
+  variant: unknown,
+  deps: Deps,
+  cors: Record<string, string>,
+) {
+  if (variant !== "original" || !deps.listCollectionWorks) {
+    return json(400, { error: "bad_request", message: "未知的作品版本。" }, cors);
+  }
+  const rows = (await deps.listCollectionWorks(ids))
+    .filter((r) => r.collection_public && r.is_published && r.is_downloadable && r.original_path && r.mime_type && r.file_size)
+    .sort((a, b) => a.sort_order - b.sort_order || a.work_number - b.work_number);
+  if (rows.length === 0) {
+    return json(404, { error: "not_found", message: "找不到可下載的作品。" }, cors);
+  }
+  const urls = await deps.signUrls(rows.map((r) => r.original_path!), SIGNED_URL_TTL_SECONDS);
+  const items = rows
+    .map((r, i) => ({
+      id: r.id,
+      title: `No.${pad3(r.work_number)}_${r.nickname}`,
+      mime_type: r.mime_type!,
+      file_size: r.file_size!,
+      url: urls[i],
+    }))
+    .filter((r) => typeof r.url === "string");
   return json(200, { items, expires_in: SIGNED_URL_TTL_SECONDS }, cors);
 }

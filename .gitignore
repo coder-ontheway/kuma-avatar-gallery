@@ -11,3 +11,4 @@ test-results/
 tests/e2e/output/
 .DS_Store
 tests/e2e/private-artworks/
+tests/e2e/output-life/

@@ -1238,3 +1238,664 @@ code {
   font-size: 0.82rem;
   color: var(--brown, #8a5a3b);
 }
+
+/* =====================================================================
+   熊兔生命共同體限定收藏館：溫暖森林系（奶油白、暖棕、淡金）
+   ===================================================================== */
+.life {
+  --gold: #b8893e;
+  --gold-soft: #e8d3a6;
+  --cream: #fffaf2;
+  --forest: #6b7f4e;
+  background:
+    radial-gradient(1200px 500px at 50% -120px, rgba(232, 211, 166, 0.55), transparent 70%),
+    linear-gradient(#fffaf2, #fbf1e2 60%, #fff8ef);
+  min-height: 100vh;
+}
+
+.life-header {
+  background: rgba(255, 250, 242, 0.92);
+}
+
+.preview-banner {
+  background: #fff1d6;
+  color: #7a5200;
+  text-align: center;
+  padding: 8px 16px;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.life-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 32px;
+  align-items: center;
+  padding: 36px 0 12px;
+}
+
+.life-eyebrow {
+  margin: 0 0 6px;
+  color: var(--gold);
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  font-size: 0.8rem;
+}
+
+.life-title {
+  font-family: "Noto Serif TC", "Songti TC", serif;
+  font-size: clamp(1.8rem, 6vw, 2.8rem);
+  color: #5a3a26;
+}
+
+.life-en {
+  margin: 4px 0 0;
+  font-family: "Noto Serif TC", Georgia, serif;
+  letter-spacing: 0.32em;
+  color: var(--gold);
+  font-weight: 700;
+  font-size: 0.95rem;
+}
+
+.life-tagline {
+  margin: 14px 0 6px;
+  font-size: 1.1rem;
+  color: #6d4429;
+  font-weight: 600;
+}
+
+.life-desc {
+  margin: 0;
+  color: var(--ink-soft);
+}
+
+.life-entries {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 20px;
+}
+
+.life-btn {
+  background: #fff;
+  border-color: var(--gold-soft);
+  color: #5a3a26;
+}
+
+.life-btn.primary {
+  background: #8a5a3b;
+  border-color: #8a5a3b;
+  color: #fff;
+}
+
+.life-hero-photo {
+  position: relative;
+  display: block;
+  border-radius: 28px;
+  overflow: hidden;
+  border: 6px solid #fff;
+  box-shadow: 0 14px 40px rgba(138, 90, 59, 0.22), 0 0 0 1px var(--gold-soft);
+}
+
+.life-hero-photo img {
+  height: auto;
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: cover;
+}
+
+.life-hero-badge {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  background: rgba(255, 250, 242, 0.92);
+  color: #5a3a26;
+  border-radius: 999px;
+  padding: 4px 14px;
+  font-weight: 700;
+  font-size: 0.9rem;
+}
+
+.life-section-title small {
+  font-size: 0.85rem;
+  color: var(--gold);
+  font-weight: 600;
+  margin-left: 6px;
+}
+
+.life-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 18px;
+}
+
+.life-card {
+  position: relative;
+  background: #fffdf8;
+  border-radius: 22px;
+  border: 1px solid var(--gold-soft);
+  overflow: hidden;
+  box-shadow: 0 8px 22px rgba(138, 90, 59, 0.12);
+  display: flex;
+  flex-direction: column;
+}
+
+.life-card-photo {
+  position: relative;
+  display: block;
+}
+
+.life-card-photo img {
+  height: auto;
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: cover;
+}
+
+.life-no {
+  position: absolute;
+  left: 10px;
+  top: 10px;
+  background: rgba(90, 58, 38, 0.82);
+  color: #fbe7bd;
+  font-family: "Noto Serif TC", Georgia, serif;
+  font-weight: 700;
+  border-radius: 999px;
+  padding: 2px 12px;
+  font-size: 0.9rem;
+  letter-spacing: 0.04em;
+}
+
+.life-card-photo .badge.draft {
+  position: absolute;
+  right: 54px;
+  top: 14px;
+  background: #fff1d6;
+  color: #9a6400;
+}
+
+.fav {
+  position: absolute;
+  right: 10px;
+  top: 8px;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(255, 255, 255, 0.92);
+  color: #d9647a;
+  font-size: 1.3rem;
+  cursor: pointer;
+  line-height: 1;
+}
+
+.fav.on {
+  background: #d9647a;
+  color: #fff;
+}
+
+.life-card-info {
+  padding: 12px 14px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+}
+
+.life-nick {
+  font-family: "Noto Serif TC", "Songti TC", serif;
+  font-size: 1.2rem;
+  color: #5a3a26;
+}
+
+.life-work-title {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 0.9rem;
+}
+
+.life-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: auto;
+  padding-top: 8px;
+}
+
+.life-actions .btn {
+  flex: 1 1 auto;
+}
+
+.card-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 12px;
+  margin: 14px 0;
+}
+
+.mini-card-btn {
+  position: relative;
+  width: 100%;
+  border: 1px solid var(--gold-soft);
+  background: linear-gradient(#fffaf2, #f6e9d6);
+  border-radius: 14px;
+  padding: 8px 8px 10px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  aspect-ratio: 2 / 3;
+}
+
+.mini-card-btn img {
+  height: auto;
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: cover;
+  border-radius: 8px;
+}
+
+.mini-card-no {
+  font-family: "Noto Serif TC", Georgia, serif;
+  color: var(--gold);
+  font-weight: 700;
+  margin-top: 4px;
+}
+
+.mini-card-nick {
+  font-family: "Noto Serif TC", serif;
+  color: #5a3a26;
+  font-weight: 700;
+  font-size: 0.92rem;
+  text-align: center;
+}
+
+.mini-card.selected .mini-card-btn {
+  outline: 3px solid #8a5a3b;
+}
+
+.mini-check {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 2px solid #fff;
+  background: rgba(90, 58, 38, 0.6);
+  color: #fff;
+  font-weight: 700;
+  display: grid;
+  place-items: center;
+}
+
+.zip-row {
+  margin-top: 4px;
+}
+
+.life-crumbs {
+  padding: 16px 0 4px;
+}
+
+.narrow-wide {
+  max-width: 980px;
+}
+
+.life-work {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+  gap: 24px;
+  align-items: start;
+  padding-bottom: 40px;
+}
+
+.life-pager {
+  font-size: 0.9rem;
+  gap: 12px;
+}
+
+/* 身份證 */
+.id-card {
+  background: linear-gradient(160deg, #fffdf8, #f6e9d6);
+  border: 1px solid var(--gold-soft);
+  border-radius: 24px;
+  box-shadow: 0 12px 34px rgba(138, 90, 59, 0.18);
+  padding: 16px;
+  position: relative;
+}
+
+.id-card::before {
+  content: "";
+  position: absolute;
+  inset: 7px;
+  border: 1px dashed var(--gold-soft);
+  border-radius: 19px;
+  pointer-events: none;
+}
+
+.id-card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  padding: 2px 6px 12px;
+  flex-wrap: wrap;
+}
+
+.id-card-brand {
+  letter-spacing: 0.24em;
+  font-weight: 700;
+  font-size: 0.78rem;
+  color: var(--gold);
+}
+
+.id-card-kind {
+  font-family: "Noto Serif TC", serif;
+  font-weight: 700;
+  color: #5a3a26;
+}
+
+.id-card-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 16px;
+}
+
+.id-card-photo img {
+  height: auto;
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: cover;
+  border-radius: 16px;
+  border: 4px solid #fff;
+  box-shadow: 0 4px 14px rgba(90, 58, 38, 0.15);
+}
+
+.id-card-fields {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.id-card-fields dt {
+  font-size: 0.75rem;
+  color: var(--gold);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+}
+
+.id-card-fields dd {
+  margin: 0;
+  color: #5a3a26;
+}
+
+.id-no {
+  font-family: "Noto Serif TC", Georgia, serif;
+  font-size: 1.6rem;
+  font-weight: 700;
+  color: var(--gold) !important;
+}
+
+.id-nick {
+  font-family: "Noto Serif TC", serif;
+  font-size: 1.35rem;
+  font-weight: 700;
+}
+
+.id-manifesto {
+  color: #c4506a !important;
+  font-weight: 700;
+}
+
+.id-card-foot {
+  text-align: center;
+  letter-spacing: 0.3em;
+  font-size: 0.75rem;
+  color: var(--gold);
+  font-weight: 700;
+  padding-top: 12px;
+}
+
+/* 收藏卡製作 */
+.card-maker {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+}
+
+.card-canvas-wrap {
+  position: relative;
+}
+
+.card-canvas {
+  width: 100%;
+  max-width: 420px;
+  aspect-ratio: 2 / 3;
+  display: block;
+  margin: 0 auto;
+  border-radius: 14px;
+  box-shadow: 0 8px 24px rgba(90, 58, 38, 0.18);
+  background: #fffaf2;
+}
+
+/* 大頭貼編輯器（生命共同體模式） */
+.stage-overlay .protect {
+  fill: rgba(255, 236, 200, 0.12);
+  stroke: #ffe6a8;
+  stroke-width: 0.5;
+  stroke-dasharray: 1.6 1.2;
+}
+
+.platform-minis {
+  display: flex;
+  gap: 10px;
+}
+
+.platform-minis .mini {
+  flex: 1;
+  border: 1.5px solid var(--line);
+  background: #fff;
+  border-radius: 12px;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  font-size: 0.78rem;
+  min-width: 0;
+}
+
+.platform-minis .mini.active {
+  border-color: var(--brown);
+  box-shadow: 0 0 0 2px var(--pink-soft);
+}
+
+.mini-canvas {
+  width: 100%;
+  max-width: 88px;
+  aspect-ratio: 1;
+  border-radius: 8px;
+  display: block;
+}
+
+.mini-canvas.round {
+  border-radius: 50%;
+}
+
+.presets .chip {
+  text-align: left;
+}
+
+/* 首頁入口 */
+.life-entry {
+  display: grid;
+  grid-template-columns: 120px minmax(0, 1fr);
+  gap: 16px;
+  align-items: center;
+  text-decoration: none;
+  color: #5a3a26;
+  background: linear-gradient(120deg, #fffaf2, #f6e3c2);
+  border: 1px solid #e8d3a6;
+  border-radius: 22px;
+  padding: 14px;
+  margin: 18px 0;
+  box-shadow: 0 10px 26px rgba(138, 90, 59, 0.15);
+}
+
+.life-entry-img {
+  width: 120px;
+  height: 120px;
+  object-fit: cover;
+  border-radius: 16px;
+  border: 3px solid #fff;
+}
+
+.life-entry-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.life-entry-text small {
+  color: #b8893e;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+.life-entry-text strong {
+  font-family: "Noto Serif TC", serif;
+  font-size: 1.25rem;
+}
+
+.life-entry-text em {
+  font-style: normal;
+  letter-spacing: 0.24em;
+  color: #b8893e;
+  font-weight: 700;
+  font-size: 0.8rem;
+}
+
+.life-entry-tag {
+  color: var(--ink-soft);
+  font-size: 0.9rem;
+}
+
+.life-entry-go {
+  font-weight: 700;
+  margin-top: 4px;
+}
+
+/* 管理後臺 */
+.pending-thumb {
+  display: grid;
+  place-items: center;
+  background: repeating-linear-gradient(45deg, #fff8ef, #fff8ef 8px, #fbefdc 8px, #fbefdc 16px);
+  color: #9a6400;
+  font-weight: 700;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.zone-editor {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
+}
+
+.zone-stage {
+  position: relative;
+  width: 100%;
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.zone-stage img,
+.zone-stage svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.zone-stage .zone rect {
+  fill: none;
+  stroke: rgba(255, 255, 255, 0.6);
+  stroke-width: 0.3;
+}
+
+.zone-stage .zone ellipse {
+  fill: rgba(255, 230, 168, 0.15);
+  stroke: #ffe6a8;
+  stroke-width: 0.5;
+  stroke-dasharray: 1.5 1;
+}
+
+.zone-stage .zone.sel ellipse {
+  stroke: #ff7a95;
+  stroke-width: 0.8;
+}
+
+@media (max-width: 760px) {
+  .life-hero {
+    grid-template-columns: 1fr;
+    gap: 18px;
+    padding-top: 20px;
+  }
+
+  .life-hero-photo {
+    order: -1;
+  }
+
+  .life-work,
+  .card-maker,
+  .zone-editor {
+    grid-template-columns: 1fr;
+  }
+
+  .life-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+  }
+
+  .life-card-info {
+    padding: 10px;
+  }
+
+  .life-actions .btn {
+    flex: 1 1 100%;
+  }
+
+  .life-nick {
+    font-size: 1.05rem;
+  }
+
+  .card-strip {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .life-entry {
+    grid-template-columns: 88px minmax(0, 1fr);
+  }
+
+  .life-entry-img {
+    width: 88px;
+    height: 88px;
+  }
+}
+
+@media (max-width: 420px) {
+  .id-card-body {
+    grid-template-columns: 1fr;
+  }
+
+  .card-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

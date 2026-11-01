@@ -61,6 +61,7 @@ export default function AdminLayout() {
           <strong>KUMA 管理後臺</strong>
           <nav className="admin-nav">
             <NavLink to="/admin" end>作品管理</NavLink>
+            <NavLink to="/admin/life">生命共同體</NavLink>
             <NavLink to="/admin/categories">分類管理</NavLink>
             <NavLink to="/admin/settings">網站設定</NavLink>
             <a href="#/" target="_blank" rel="noopener">查看網站 ↗</a>
