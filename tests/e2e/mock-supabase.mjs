@@ -17,7 +17,7 @@ import { handle } from "../../supabase/functions/download/handler.ts";
 
 const JWT_SECRET = "e2e-test-jwt-secret-not-for-production-0123456789";
 const TOKEN_SECRET = "e2e-download-token-secret-not-for-production-0123456789";
-const TABLES = new Set(["images", "categories", "site_settings", "admins", "image_download_stats"]);
+const TABLES = new Set(["images", "categories", "site_settings", "admins", "image_download_stats", "collections", "collection_works"]);
 const RPCS = new Set(["is_admin", "set_download_password", "download_password_status"]);
 
 export function createMockSupabase({ database, storageDir, users, port }) {
@@ -91,6 +91,8 @@ export function createMockSupabase({ database, storageDir, users, port }) {
     for await (const c of req) chunks.push(c);
     return Buffer.concat(chunks);
   }
+  // jsonb 欄位（物件或物件陣列）以 JSON 字串傳入；文字陣列維持 PostgreSQL 陣列
+  const pgValue = (v) => (v && typeof v === "object" && (!Array.isArray(v) || v.some((x) => x && typeof x === "object")) ? JSON.stringify(v) : v);
   const ident = (s) => {
     if (!/^[a-z_][a-z0-9_]*$/.test(s)) throw Object.assign(new Error("bad identifier"), { code: "PGRST100" });
     return `"${s}"`;
@@ -173,11 +175,11 @@ export function createMockSupabase({ database, storageDir, users, port }) {
         const rows = Array.isArray(body) ? body : [body];
         const keys = Object.keys(rows[0]);
         params = [];
-        const values = rows.map((row) => `(${keys.map((k) => (params.push(row[k]), `$${params.length}`)).join(",")})`);
+        const values = rows.map((row) => `(${keys.map((k) => (params.push(pgValue(row[k])), `$${params.length}`)).join(",")})`);
         sql = `with r as (insert into public.${ident(table)} (${keys.map(ident).join(",")}) values ${values.join(",")} ${returning}) select coalesce(json_agg(r), '[]') as r from r`;
       } else if (req.method === "PATCH") {
         const body = JSON.parse((await readBody(req)).toString());
-        const sets = Object.keys(body).map((k) => (params.push(body[k]), `${ident(k)} = $${params.length}`));
+        const sets = Object.keys(body).map((k) => (params.push(pgValue(body[k])), `${ident(k)} = $${params.length}`));
         sql = `with r as (update public.${ident(table)} set ${sets.join(",")} ${q.where} ${returning}) select coalesce(json_agg(r), '[]') as r from r`;
       } else if (req.method === "DELETE") {
         sql = `with r as (delete from public.${ident(table)} ${q.where} ${returning}) select coalesce(json_agg(r), '[]') as r from r`;
@@ -359,6 +361,18 @@ export function createMockSupabase({ database, storageDir, users, port }) {
         c.query(
           `select id, title, original_path, plain_original_path, mime_type, file_size::int, sort_order, is_published, is_downloadable, is_monthly
              from public.images where is_published and is_downloadable ${ids ? "and id::text = any($1)" : ""}`,
+          ids ? [ids] : [],
+        ),
+      );
+      return r.rows;
+    },
+    async listCollectionWorks(ids) {
+      const r = await asRole({ role: "service_role" }, (c) =>
+        c.query(
+          `select w.id, w.work_number, w.nickname, w.title, w.original_path, w.mime_type, w.file_size::int, w.sort_order,
+                  w.is_published, w.is_downloadable, c.is_published as collection_public
+             from public.collection_works w join public.collections c on c.id = w.collection_id
+            where w.is_published and w.is_downloadable and c.is_published and w.original_path is not null ${ids ? "and w.id::text = any($1)" : ""}`,
           ids ? [ids] : [],
         ),
       );

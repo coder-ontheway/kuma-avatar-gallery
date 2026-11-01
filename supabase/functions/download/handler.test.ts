@@ -1,6 +1,6 @@
 // 執行：npm run test:functions（使用 Deno 內建測試）
 import { assert, assertEquals } from "jsr:@std/assert@1";
-import { type Deps, handle, type ImageRow, type VerifyResult } from "./handler.ts";
+import { type CollectionWorkRow, type Deps, handle, type ImageRow, type VerifyResult } from "./handler.ts";
 import { signToken } from "./token.ts";
 
 const SECRET = "test-secret-test-secret-test-secret-0123456789";
@@ -10,6 +10,19 @@ function img(id: string, extra: Partial<ImageRow> = {}): ImageRow {
   return {
     id, title: `作品${id.slice(-1)}`, original_path: `${id}/orig.png`, plain_original_path: null, mime_type: "image/png",
     file_size: 1000, sort_order: Number(id.slice(-1)), is_published: true, is_downloadable: true, is_monthly: false, ...extra,
+  };
+}
+
+const W1 = "11111111-0000-4000-8000-000000000001";
+const W2 = "11111111-0000-4000-8000-000000000002";
+const W3 = "11111111-0000-4000-8000-000000000003";
+const W4 = "11111111-0000-4000-8000-000000000004";
+const W5 = "11111111-0000-4000-8000-000000000005";
+
+function work(id: string, no: number, extra: Partial<CollectionWorkRow> = {}): CollectionWorkRow {
+  return {
+    id, work_number: no, nickname: `稱號${no}`, title: `作品${no}`, original_path: `life/${id}/orig.jpg`, mime_type: "image/jpeg",
+    file_size: 2000, sort_order: no * 10, is_published: true, is_downloadable: true, collection_public: true, ...extra,
   };
 }
 
@@ -40,6 +53,16 @@ function makeDeps(over: Partial<Deps> & { version?: number; enabled?: boolean; m
     signUrls: (paths, exp) => {
       calls.signed.push(...paths);
       return Promise.resolve(paths.map((p) => `https://example.test/sign/${p}?exp=${exp}`));
+    },
+    listCollectionWorks: (ids) => {
+      const all = [
+        work(W1, 1),
+        work(W2, 2),
+        work(W3, 3, { is_published: false }),
+        work(W4, 4, { original_path: null, mime_type: null, file_size: null }),
+        work(W5, 5, { collection_public: false }),
+      ];
+      return Promise.resolve(ids ? all.filter((r) => ids.includes(r.id)) : all);
     },
     recordDownloads: (ids, kind) => {
       calls.recorded.push(`${kind}:${ids.join(",")}`);
@@ -256,4 +279,58 @@ Deno.test("下載次數：統計失敗不影響下載", async () => {
   const res = await handle(post({ action: "sign", token, ids: [ID1], purpose: "avatar" }), deps);
   assertEquals(res.status, 200);
   assertEquals((await res.json()).items.length, 1);
+});
+
+Deno.test("生命共同體：沒有下載憑證不能取得系列原圖", async () => {
+  const { deps, calls } = makeDeps();
+  const res = await handle(post({ action: "sign", token: "bad", source: "collection", ids: [W1] }), deps);
+  assertEquals(res.status, 401);
+  assertEquals(calls.signed.length, 0);
+});
+
+Deno.test("生命共同體：通過密碼後可取得單張系列原圖，且不會查到原收藏館", async () => {
+  const { deps, calls } = makeDeps();
+  const token = await getToken(deps);
+  const res = await handle(post({ action: "sign", token, source: "collection", ids: [W2], purpose: "card" }), deps);
+  assertEquals(res.status, 200);
+  const body = await res.json();
+  assertEquals(body.items.length, 1);
+  assertEquals(body.items[0].title, "No.002_稱號2");
+  assertEquals(calls.signed, [`life/${W2}/orig.jpg`]);
+  assertEquals(calls.recorded.length, 0);
+});
+
+Deno.test("生命共同體：全部下載只包含已公開、已上傳、系列公開的作品", async () => {
+  const { deps, calls } = makeDeps();
+  const token = await getToken(deps);
+  const res = await handle(post({ action: "sign", token, source: "collection", all: true }), deps);
+  assertEquals(res.status, 200);
+  const body = await res.json();
+  assertEquals(body.items.map((i: { id: string }) => i.id), [W1, W2]);
+  assert(calls.signed.every((p) => p.startsWith("life/")));
+});
+
+Deno.test("生命共同體：草稿、待上傳或系列未公開的作品不能下載", async () => {
+  const { deps } = makeDeps();
+  const token = await getToken(deps);
+  for (const id of [W3, W4, W5]) {
+    const res = await handle(post({ action: "sign", token, source: "collection", ids: [id] }), deps);
+    assertEquals(res.status, 404);
+  }
+});
+
+Deno.test("原收藏館的 ZIP 不包含系列作品", async () => {
+  const { deps, calls } = makeDeps();
+  const token = await getToken(deps);
+  const res = await handle(post({ action: "sign", token, all: true }), deps);
+  assertEquals(res.status, 200);
+  assert(calls.signed.every((p) => !p.startsWith("life/")));
+});
+
+Deno.test("未知的作品來源與無字版系列請求會被拒絕", async () => {
+  const { deps } = makeDeps();
+  const token = await getToken(deps);
+  assertEquals((await handle(post({ action: "sign", token, source: "x", ids: [W1] }), deps)).status, 400);
+  assertEquals((await handle(post({ action: "sign", token, source: "collection", variant: "plain", ids: [W1] }), deps)).status, 400);
+  assertEquals((await handle(post({ action: "sign", token, purpose: "card", ids: [ID1] }), deps)).status, 400);
 });

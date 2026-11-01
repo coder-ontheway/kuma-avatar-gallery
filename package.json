@@ -11,7 +11,8 @@
     "test:db": "bash scripts/test-db.sh",
     "test:functions": "deno test --allow-env supabase/functions/download/",
     "test:e2e": "node tests/e2e/run-e2e.mjs",
-    "check:secrets": "node scripts/check-secrets.mjs"
+    "check:secrets": "node scripts/check-secrets.mjs",
+    "test:e2e:life": "node tests/e2e/run-e2e-life.mjs"
   },
   "license": "UNLICENSED",
   "devDependencies": {

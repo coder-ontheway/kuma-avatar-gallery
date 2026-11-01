@@ -44,6 +44,10 @@ KUMA 工作室的熊大、兔兔原創照片大頭貼網站。粉絲可以公開
 
 > 平台預覽是「通用的大頭貼裁切示意」，不代表各平台官方的精確顯示方式；程式中沒有硬編任何官方尺寸規定。下載的一律是方形圖片，邊長沿用原圖實際裁切的像素（最大 2048px；加上文字時至少 1024px，讓文字清晰）。
 
+### 熊兔生命共同體限定收藏館（`網站網址/#/life`）
+
+獨立的主題系列「KUMA 熊兔生命共同體｜ONE HEART, ONE LIFE」：十款獨立作品，每款有自己的原始照片、身份證、宣言大頭貼與收藏卡（單張／多選／十張 ZIP），沿用同一組下載密碼與兩位管理員。資料表（`collections`、`collection_works`）與原本的 `images` 完全分開。操作方式見 [生命共同體操作說明](docs/生命共同體操作說明.md)。
+
 ### 管理後臺（`網站網址/#/admin`）
 
 - 兩位管理員以各自的 Supabase Auth 帳號登入，權限相同
@@ -55,6 +59,7 @@ KUMA 工作室的熊大、兔兔原創照片大頭貼網站。粉絲可以公開
 - 網站設定：網站名稱、品牌、公告、Facebook 粉專網址、最新更新日期、本月作品是否公開、全站下載開關
 - 下載密碼：更換後舊密碼與已發出的下載授權立即失效；顯示由哪位管理員、何時更新
 - 管理員名單（唯讀）、變更自己的登入密碼、忘記密碼信
+- 生命共同體：單張／批次上傳照片（依檔名自動對應編號）、編輯稱號／名稱／介紹／宣言／編號、保護區域、排序、公開／下架、刪除、新增 No.011 以後的作品、系列設定與預設宣言、粉絲頁面預覽
 
 每月更新只需要在後臺操作，**不需要修改程式碼、重新建置或編輯 JSON**。
 
@@ -155,7 +160,7 @@ KUMA 工作室的熊大、兔兔原創照片大頭貼網站。粉絲可以公開
 
 > 已經部署過的專案，之後程式更新若新增了 migration 檔，只要在 SQL Editor 執行**新的那幾個檔案**即可；這些檔案都可以重複執行。
 3. 檢查：
-   - **Table Editor** 出現 `admins`、`categories`（7 個預設分類）、`images`、`site_settings`
+   - **Table Editor** 出現 `admins`、`categories`（7 個預設分類）、`images`、`site_settings`、`collections`（1 個系列）、`collection_works`（10 款待上傳作品）
    - **Storage** 出現 `previews`（Public）與 `originals`（**不是** Public）
 
 ### 3. 關閉公開註冊
@@ -260,11 +265,12 @@ npm run dev                    # http://localhost:5173
 
 | 指令 | 內容 | 需求 |
 | --- | --- | --- |
-| `npm test` | 裁切數學、檔名、ZIP 分批單元測試 | — |
+| `npm test` | 裁切數學、檔名、ZIP 分批、保護區域、批次對應單元測試 | — |
 | `npm run typecheck` | TypeScript 型別檢查 | — |
-| `npm run test:db` | 在本機 PostgreSQL 套用 migration，測試 RLS、Storage 政策、雙管理員、撤銷、密碼雜湊與鎖定（87 項） | PostgreSQL 15+ |
-| `npm run test:functions` | Edge Function 測試（16 項） | 安裝時自動下載 Deno |
+| `npm run test:db` | 在本機 PostgreSQL 套用 migration，測試 RLS、Storage 政策、雙管理員、撤銷、密碼雜湊與鎖定、生命共同體系列（131 項） | PostgreSQL 15+ |
+| `npm run test:functions` | Edge Function 測試（27 項） | 安裝時自動下載 Deno |
 | `npm run test:e2e` | 瀏覽器端到端驗收（80 項，含截圖） | PostgreSQL、Playwright Chromium，作品放在 `tests/e2e/private-artworks/`（不提交） |
+| `npm run test:e2e:life` | 生命共同體端到端驗收（70 項，含截圖） | 同上，十張原始照片放在 `tests/e2e/private-artworks/life/`（不提交） |
 | `npm run check:secrets` | 掃描是否有私密金鑰要被提交 | git |
 
 端到端測試使用 `tests/e2e/mock-supabase.mjs`：一個「Supabase 相容測試伺服器」，把請求轉成在本機 PostgreSQL 以 anon／authenticated／service_role 身分執行的 SQL（正式 migration 的 RLS 實際生效），並直接執行正式的 Edge Function 程式。它不是真正的 Supabase，因此正式環境仍需依 [部署與驗收清單](docs/部署與驗收清單.md) 實測一次。

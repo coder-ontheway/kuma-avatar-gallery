@@ -2,6 +2,9 @@ import { useEffect } from "react";
 import { Navigate, Route, Routes, useNavigate } from "react-router-dom";
 import { authLinkType, isConfigured, supabase } from "./lib/supabase";
 import Home from "./pages/Home";
+import LifeHome from "./pages/LifeHome";
+import LifeWork from "./pages/LifeWork";
+import AdminLife from "./pages/admin/AdminLife";
 import SetupNotice from "./pages/SetupNotice";
 import AdminLogin from "./pages/admin/AdminLogin";
 import AdminLayout from "./pages/admin/AdminLayout";
@@ -30,10 +33,13 @@ export default function App() {
     <DownloadAuthProvider>
       <Routes>
         <Route path="/" element={<Home />} />
+        <Route path="/life" element={<LifeHome />} />
+        <Route path="/life/:no" element={<LifeWork />} />
         <Route path="/admin/login" element={<AdminLogin />} />
         <Route path="/admin/set-password" element={<SetPassword />} />
         <Route path="/admin" element={<AdminLayout />}>
           <Route index element={<AdminImages />} />
+          <Route path="life" element={<AdminLife />} />
           <Route path="categories" element={<AdminCategories />} />
           <Route path="settings" element={<AdminSettings />} />
         </Route>

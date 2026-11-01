@@ -3,7 +3,7 @@
 // 必要 Secret：DOWNLOAD_TOKEN_SECRET（至少 32 字元的隨機字串）
 // 選用 Secret：ALLOWED_ORIGINS（逗號分隔，例如 https://你的帳號.github.io）
 import { createClient } from "npm:@supabase/supabase-js@2";
-import { handle, type ImageRow } from "./handler.ts";
+import { handle, type CollectionWorkRow, type ImageRow } from "./handler.ts";
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
 // 伺服器端金鑰由 Supabase 自動注入 Edge Function（不在前端、不在 GitHub）：
@@ -64,6 +64,20 @@ Deno.serve((req) =>
       const { data, error } = await q;
       if (error) throw new Error(`images query failed (${error.code})`);
       return data as ImageRow[];
+    },
+    async listCollectionWorks(ids) {
+      let q = admin
+        .from("collection_works")
+        .select("id,work_number,nickname,title,original_path,mime_type,file_size,sort_order,is_published,is_downloadable,collections!inner(is_published)")
+        .eq("is_published", true)
+        .eq("is_downloadable", true)
+        .eq("collections.is_published", true)
+        .not("original_path", "is", null);
+      if (ids) q = q.in("id", ids);
+      const { data, error } = await q;
+      if (error) throw new Error(`collection query failed (${error.code})`);
+      return (data as unknown as (Omit<CollectionWorkRow, "collection_public"> & { collections: { is_published: boolean } | null })[])
+        .map(({ collections, ...r }) => ({ ...r, collection_public: collections?.is_published === true }));
     },
     async signUrls(paths, expiresIn) {
       const { data, error } = await admin.storage.from("originals").createSignedUrls(paths, expiresIn);

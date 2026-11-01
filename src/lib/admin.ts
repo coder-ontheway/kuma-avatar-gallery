@@ -5,7 +5,7 @@ import { prepareImage } from "./imageProcessing";
 import type { AdminImage, AdminUser, Category, DownloadStats, SiteSettings } from "./types";
 import { SETTINGS_COLUMNS } from "./api";
 
-function fail(prefix: string, error: { message?: string; code?: string } | null): never {
+export function fail(prefix: string, error: { message?: string; code?: string } | null): never {
   const code = error?.code;
   if (code === "42501" || /row-level security|permission denied|Unauthorized/i.test(error?.message ?? "")) {
     throw new Error(`${prefix}：沒有管理權限。`);
@@ -47,11 +47,12 @@ function stamp() {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-async function uploadPair(id: string, file: File, kind: "original" | "plain" = "original") {
+/** 原圖原封不動上傳到私有 originals；另存一張縮小的公開預覽圖。prefix 用於區分主題系列（例如 "life/"） */
+export async function uploadPair(id: string, file: File, kind: "original" | "plain" = "original", prefix = "") {
   const prepared = await prepareImage(file);
   const s = stamp();
-  const originalPath = `${id}/${s}-${kind}.${extFromMime(file.type)}`;
-  const previewPath = `${id}/${s}-${kind}-preview.${prepared.previewExt}`;
+  const originalPath = `${prefix}${id}/${s}-${kind}.${extFromMime(file.type)}`;
+  const previewPath = `${prefix}${id}/${s}-${kind}-preview.${prepared.previewExt}`;
   const up1 = await supabase.storage.from("originals").upload(originalPath, file, { contentType: file.type, upsert: false });
   if (up1.error) fail("原圖上傳失敗", { message: up1.error.message });
   const up2 = await supabase.storage
@@ -147,7 +148,7 @@ export async function removePlainVersion(image: AdminImage): Promise<AdminImage>
   return data as AdminImage;
 }
 
-async function removeFiles(previewPath: string, originalPath: string) {
+export async function removeFiles(previewPath: string, originalPath: string) {
   await Promise.all([
     supabase.storage.from("previews").remove([previewPath]),
     supabase.storage.from("originals").remove([originalPath]),

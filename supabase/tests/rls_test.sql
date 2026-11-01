@@ -216,4 +216,45 @@ select t.check('訪客看不到下載次數', t.try_as('anon', null, 'select cou
 select t.check('管理員 A 看得到下載次數', t.try_as('authenticated', :A, 'select count(*)::text from public.image_download_stats'), '1');
 select t.check('管理員不能修改下載次數', t.try_as('authenticated', :A, 'update public.image_download_stats set avatar_count = 999 where true returning 1'), 'ERROR:42501');
 
+do $$ begin raise notice '--- 11. 熊兔生命共同體（獨立系列） ---'; end $$;
+update public.admins set is_active = true where user_id = 'bbbbbbbb-0000-0000-0000-000000000002';
+select t.check('B 恢復為管理員', t.try_as('authenticated', :B, 'select public.is_admin()::text'), 'true');
+select t.check('系列初始資料：1 個系列', (select count(*)::text from public.collections where slug = 'one-heart-one-life'), '1');
+select t.check('系列初始資料：10 款作品、10 個不同編號', (select count(distinct work_number)::text from public.collection_works), '10');
+select t.check('系列初始資料：10 個不同稱號', (select count(distinct nickname)::text from public.collection_works), '10');
+select t.check('No.001 稱號', (select nickname from public.collection_works where work_number = 1), '熊兔共生體');
+select t.check('No.010 稱號', (select nickname from public.collection_works where work_number = 10), '永恆愛心體');
+select t.check('初始作品都是待上傳（沒有照片、未公開）', (select count(*)::text from public.collection_works where original_path is null and not is_published), '10');
+select t.check('預設宣言 10 句', (select cardinality(manifestos)::text from public.collections where slug = 'one-heart-one-life'), '10');
+select t.check('待上傳作品不能公開', t.try_as('authenticated', :A, 'update public.collection_works set is_published = true where work_number = 1 returning 1'), 'ERROR:23514');
+select t.check('照片欄位必須完整', t.try_as('authenticated', :A, $q$update public.collection_works set preview_path = 'x' where work_number = 1 returning 1$q$), 'ERROR:23514');
+select t.check('作品編號不能重複', t.try_as('authenticated', :A, 'update public.collection_works set work_number = 2 where work_number = 1 returning 1'), 'ERROR:23505');
+select t.check('宣言長度限制', t.try_as('authenticated', :A, $q$update public.collections set manifestos = array[repeat('長', 41)] where true returning 1$q$), 'ERROR:23514');
+-- A 上傳 No.001、No.002 的照片並公開 No.001；B 上傳 No.003（兩位管理員權限相同）
+select t.do_as('authenticated', :A, $q$update public.collection_works set preview_path = 'life/1/p.webp', original_path = 'life/1/o.jpg', mime_type = 'image/jpeg', file_size = 100, width = 1280, height = 1280 where work_number in (1, 2) returning 'ok'$q$);
+select t.do_as('authenticated', :A, $q$update public.collection_works set is_published = true where work_number = 1 returning 'ok'$q$);
+select t.check('B 可以上傳並公開 No.003', t.try_as('authenticated', :B, $q$with u as (update public.collection_works set preview_path = 'life/3/p.webp', original_path = 'life/3/o.jpg', mime_type = 'image/jpeg', file_size = 100, width = 1280, height = 1280, is_published = true where work_number = 3 returning 1) select count(*)::text from u$q$), '1');
+select t.check('B 可以修改稱號與介紹', t.try_as('authenticated', :B, $q$with u as (update public.collection_works set nickname = '改名', description = '新介紹' where work_number = 2 returning 1) select count(*)::text from u$q$), '1');
+select t.check('B 可以新增 No.011', t.try_as('authenticated', :B, $q$insert into public.collection_works (collection_id, work_number, nickname) select id, 11, '新作品' from public.collections where slug = 'one-heart-one-life' returning work_number::text$q$), '11');
+select t.check('B 可以修改系列設定', t.try_as('authenticated', :B, $q$with u as (update public.collections set tagline = '新主題' where slug = 'one-heart-one-life' returning 1) select count(*)::text from u$q$), '1');
+select t.check('發布時自動記錄時間', (select (published_at is not null)::text from public.collection_works where work_number = 1), 'true');
+select t.check('訪客只看到已公開的系列作品', t.try_as('anon', null, 'select count(*)::text from public.collection_works'), '1');
+select t.check('訪客不能讀取系列原圖路徑', t.try_as('anon', null, 'select original_path from public.collection_works limit 1'), 'ERROR:42501');
+select t.check('訪客可讀取稱號與保護區域', t.try_as('anon', null, 'select nickname || jsonb_array_length(protect_zones) from public.collection_works'), '熊兔共生體2');
+select t.check('訪客不能修改系列作品', t.try_as('anon', null, 'update public.collection_works set nickname = ''壞'' where true returning 1'), 'ERROR:42501');
+select t.check('訪客不能新增系列', t.try_as('anon', null, $q$insert into public.collections (slug, name) values ('hack', 'x') returning 1$q$), 'ERROR:42501');
+select t.check('C 看不到草稿與待上傳作品', t.try_as('authenticated', :C, 'select count(*)::text from public.collection_works'), '1');
+select t.check('C 修改系列作品影響 0 列', t.try_as('authenticated', :C, 'with u as (update public.collection_works set nickname = ''壞'' where true returning 1) select count(*)::text from u'), '0');
+select t.check('C 刪除系列作品影響 0 列', t.try_as('authenticated', :C, 'with d as (delete from public.collection_works where true returning 1) select count(*)::text from d'), '0');
+select t.check('C 不能新增系列作品', t.try_as('authenticated', :C, $q$insert into public.collection_works (collection_id, work_number, nickname) select id, 50, 'x' from public.collections returning 1$q$), 'ERROR:42501');
+select t.check('管理員 A 看得到全部系列作品（含待上傳）', t.try_as('authenticated', :A, 'select count(*)::text from public.collection_works'), '10');
+-- 上面 B 新增 No.011 已回滾；以下確認系列下架後訪客看不到任何作品
+update public.collections set is_published = false where slug = 'one-heart-one-life';
+select t.check('系列下架後訪客看不到系列', t.try_as('anon', null, 'select count(*)::text from public.collections'), '0');
+select t.check('系列下架後訪客看不到作品', t.try_as('anon', null, 'select count(*)::text from public.collection_works'), '0');
+select t.check('系列下架後管理員仍看得到', t.try_as('authenticated', :A, 'select count(*)::text from public.collections'), '1');
+update public.collections set is_published = true where slug = 'one-heart-one-life';
+select t.check('系列資料不影響原收藏館作品數', t.try_as('anon', null, 'select count(*)::text from public.images'), '1');
+select t.check('A 可刪除系列作品', t.try_as('authenticated', :A, 'with d as (delete from public.collection_works where work_number = 10 returning 1) select count(*)::text from d'), '1');
+
 do $$ begin raise notice '=== 全部權限測試通過 ==='; end $$;

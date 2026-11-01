@@ -101,10 +101,13 @@ export interface SignedItem {
 
 export type Variant = "original" | "plain";
 
-/** 用途只用於後臺的下載次數統計 */
-export type Purpose = "avatar" | "original";
+/** 用途只用於後臺的下載次數統計；"card" 為生命共同體收藏卡 */
+export type Purpose = "avatar" | "original" | "card";
 
-async function sign(body: { ids?: string[]; all?: boolean; variant?: Variant; purpose?: Purpose }): Promise<SignedItem[]> {
+/** 作品來源：原本收藏館（images）或主題系列（collection_works） */
+export type Source = "images" | "collection";
+
+async function sign(body: { ids?: string[]; all?: boolean; variant?: Variant; purpose?: Purpose; source?: Source }): Promise<SignedItem[]> {
   const token = currentToken();
   if (!token) throw new DownloadError("請先輸入下載密碼。", "token_invalid", 401);
   try {
@@ -136,11 +139,25 @@ export async function fetchOriginal(
   id: string,
   variant: Variant = "original",
   purpose: Purpose = "original",
+  source: Source = "images",
 ): Promise<{ blob: Blob; item: SignedItem }> {
-  const [item] = await sign({ ids: [id], variant, purpose });
+  const [item] = await sign(source === "collection" ? { ids: [id], purpose, source } : { ids: [id], variant, purpose });
   if (!item) throw new DownloadError("找不到可下載的作品。", "not_found", 404);
   try {
     return { blob: await fetchBlob(item.url), item };
+  } catch {
+    throw new DownloadError("原圖下載失敗，請檢查網路後再試。", "fetch_failed", 0);
+  }
+}
+
+/** 主題系列：一次取得多款（或全部）作品原圖的限時網址 */
+export async function signCollection(ids: string[] | "all", purpose: Purpose = "card"): Promise<SignedItem[]> {
+  return sign(ids === "all" ? { all: true, source: "collection" } : { ids, purpose, source: "collection" });
+}
+
+export async function fetchSigned(item: SignedItem): Promise<Blob> {
+  try {
+    return await fetchBlob(item.url);
   } catch {
     throw new DownloadError("原圖下載失敗，請檢查網路後再試。", "fetch_failed", 0);
   }
