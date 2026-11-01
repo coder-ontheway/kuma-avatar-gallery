@@ -44,6 +44,20 @@ Deno.serve((req) =>
       if (error) throw new Error(`verify rpc failed (${error.code})`);
       return data;
     },
+    async verifyCollectionPassword(collectionId, password, clientHash) {
+      const { data, error } = await admin.rpc("verify_collection_download_password", {
+        p_collection_id: collectionId,
+        p_password: password,
+        p_client: clientHash,
+      });
+      if (error) throw new Error(`verify collection rpc failed (${error.code})`);
+      return data;
+    },
+    async collectionDownloadState(collectionId) {
+      const { data, error } = await admin.rpc("collection_download_state", { p_collection_id: collectionId });
+      if (error) throw new Error(`collection state rpc failed (${error.code})`);
+      return data;
+    },
     async downloadState() {
       const { data, error } = await admin.rpc("download_state");
       if (error) throw new Error(`state rpc failed (${error.code})`);
@@ -68,7 +82,7 @@ Deno.serve((req) =>
     async listCollectionWorks(ids) {
       let q = admin
         .from("collection_works")
-        .select("id,work_number,nickname,title,original_path,mime_type,file_size,sort_order,is_published,is_downloadable,collections!inner(is_published)")
+        .select("id,collection_id,work_number,nickname,title,original_path,mime_type,file_size,sort_order,is_published,is_downloadable,collections!inner(is_published)")
         .eq("is_published", true)
         .eq("is_downloadable", true)
         .eq("collections.is_published", true)

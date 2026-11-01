@@ -34,7 +34,8 @@ const USERS = [
   { id: "bbbbbbbb-2222-4222-8222-000000000002", email: "admin-b@example.test", password: "Admin-B-pass-456", name: "管理員 B（先生）" },
 ];
 const [A, B] = USERS;
-const DL_PASS = "kuma-life-2026";
+const DL_PASS = "kuma-life-2026"; // 原本收藏館的下載密碼
+const LIFE_PASS = "one-heart-0711"; // 生命共同體專屬下載密碼（由管理員在後臺設定）
 
 fs.rmSync(OUT, { recursive: true, force: true });
 fs.mkdirSync(OUT, { recursive: true });
@@ -257,6 +258,25 @@ await step("管理員 B 管理作品", async () => {
   check("管理員可以檢視並儲存保護區域", sql("select jsonb_array_length(protect_zones) from public.collection_works where work_number = 3") === "2");
 });
 
+await step("生命共同體專屬下載密碼", async () => {
+  const form = pageB.getByTestId("life-password-form");
+  await form.getByText(/尚未設定/).waitFor();
+  check("後臺顯示專屬密碼尚未設定", true);
+  await form.getByLabel("新的專屬下載密碼（6～64 字元）").fill(LIFE_PASS);
+  await form.getByLabel("再輸入一次").fill("different-1");
+  await form.getByRole("button", { name: "設定專屬下載密碼" }).click();
+  await form.getByText("兩次輸入的密碼不一致。").waitFor();
+  check("兩次輸入不一致時不會儲存", sql("select count(*) from private.collection_download_secret") === "0");
+  await form.getByLabel("再輸入一次").fill(LIFE_PASS);
+  await form.getByRole("button", { name: "設定專屬下載密碼" }).click();
+  await form.getByText(/專屬下載密碼已更新/).waitFor();
+  await form.getByText(/已設定（第 1 版/).waitFor();
+  check("管理員 B 可以設定生命共同體專屬下載密碼", sql("select version from private.collection_download_secret") === "1");
+  check("專屬密碼以雜湊存放（不是明文）", sql(`select (password_hash <> '${LIFE_PASS}' and password_hash like '$2%')::text from private.collection_download_secret`) === "true");
+  check("設定專屬密碼不影響原本收藏館的密碼", sql("select version from private.download_secret") === "1");
+  await pageB.screenshot({ path: path.join(OUT, "admin-life-password.png") });
+});
+
 await step("公開與預覽", async () => {
   await pageA.reload();
   await pageA.getByTestId("life-admin-item").first().waitFor();
@@ -432,11 +452,17 @@ await step("宣言大頭貼製作器", async () => {
 
 await step("下載密碼與大頭貼下載", async () => {
   await fan.getByRole("button", { name: "下載我的專屬大頭貼" }).click();
+  await fan.getByRole("heading", { name: "輸入生命共同體下載密碼" }).waitFor();
+  check("密碼視窗說明這是生命共同體專屬密碼", await fan.getByText(/有自己的專屬下載密碼/).isVisible());
   await fan.getByLabel("下載密碼", { exact: true }).fill("wrong-password");
   await fan.getByRole("button", { name: "確認" }).click();
   await fan.getByText(/下載密碼不正確/).waitFor();
   check("密碼錯誤時不能下載", true);
   await fan.getByLabel("下載密碼", { exact: true }).fill(DL_PASS);
+  await fan.getByRole("button", { name: "確認" }).click();
+  await fan.getByText(/下載密碼不正確/).waitFor();
+  check("原本收藏館的密碼不能下載生命共同體", true);
+  await fan.getByLabel("下載密碼", { exact: true }).fill(LIFE_PASS);
   const [d] = await Promise.all([fan.waitForEvent("download"), fan.getByRole("button", { name: "確認" }).click()]);
   const file = path.join(OUT, d.suggestedFilename());
   await d.saveAs(file);
@@ -493,15 +519,23 @@ await step("收藏卡", async () => {
 });
 
 await step("新舊系列互不干擾", async () => {
-  const tok = await (await fetch(`${API}/functions/v1/download`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "verify", password: DL_PASS }) })).json();
-  const old = await (await fetch(`${API}/functions/v1/download`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "sign", token: tok.token, all: true }) })).json();
+  const fn = (body) => fetch(`${API}/functions/v1/download`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  const lifeId = sql("select id from public.collections where slug = 'one-heart-one-life'");
+  const tok = await (await fn({ action: "verify", password: DL_PASS })).json();
+  const lifeTok = await (await fn({ action: "verify", password: LIFE_PASS, collection: lifeId })).json();
+  check("專屬密碼不能通過原本收藏館的驗證", (await fn({ action: "verify", password: LIFE_PASS })).status === 401);
+  const old = await (await fn({ action: "sign", token: tok.token, all: true })).json();
   check("原本收藏館的 ZIP 只包含原本作品", old.items?.length === 1 && old.items[0].title === "原本作品", `${old.items?.length} 張`);
-  const life = await (await fetch(`${API}/functions/v1/download`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "sign", token: tok.token, all: true, source: "collection" }) })).json();
+  const crossOld = await fn({ action: "sign", token: tok.token, all: true, source: "collection" });
+  check("原本密碼的授權不能下載生命共同體作品", crossOld.status === 401, `HTTP ${crossOld.status}`);
+  const crossLife = await fn({ action: "sign", token: lifeTok.token, all: true });
+  check("專屬密碼的授權不能下載原本收藏館作品", crossLife.status === 401, `HTTP ${crossLife.status}`);
+  const life = await (await fn({ action: "sign", token: lifeTok.token, all: true, source: "collection" })).json();
   check("生命共同體的下載只包含系列作品", life.items?.length === 10 && life.items.every((i) => i.title.startsWith("No.")));
   const noTok = await fetch(`${API}/functions/v1/download`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "sign", all: true, source: "collection" }) });
   check("未輸入密碼不能取得系列原圖", noTok.status === 401, `HTTP ${noTok.status}`);
   const bundle = fs.readdirSync(path.join(DIST, "assets")).filter((f) => f.endsWith(".js")).map((f) => fs.readFileSync(path.join(DIST, "assets", f), "utf8")).join("");
-  check("下載密碼沒有出現在前端程式碼", !bundle.includes(DL_PASS));
+  check("下載密碼沒有出現在前端程式碼", !bundle.includes(DL_PASS) && !bundle.includes(LIFE_PASS));
   check("原本作品資料未被修改", sql("select count(*) || '/' || string_agg(title, '') from public.images") === "1/原本作品");
 });
 

@@ -98,3 +98,28 @@ export async function saveWorkOrder(items: { id: string; sort_order: number }[])
     if (error) lifeFail("排序儲存失敗", error);
   }
 }
+
+export interface LifePasswordStatus {
+  configured: boolean;
+  version: number;
+  updated_at: string | null;
+  updated_by_name: string | null;
+}
+
+/** 系列專屬下載密碼狀態（不回傳密碼或雜湊） */
+export async function getCollectionPasswordStatus(collectionId: string): Promise<LifePasswordStatus> {
+  const { data, error } = await supabase.rpc("collection_download_password_status", { p_collection_id: collectionId });
+  if (error) {
+    if (error.code === "PGRST202" || /collection_download_password_status/.test(error.message ?? "")) {
+      throw new Error("讀取專屬密碼狀態失敗：請先在 Supabase SQL Editor 執行 supabase/migrations/20261102000000_collection_download_password.sql。");
+    }
+    fail("讀取專屬密碼狀態失敗", error);
+  }
+  return data as LifePasswordStatus;
+}
+
+/** 設定或更換系列專屬下載密碼（伺服器端以 bcrypt 雜湊後儲存） */
+export async function setCollectionPassword(collectionId: string, pw: string) {
+  const { error } = await supabase.rpc("set_collection_download_password", { p_collection_id: collectionId, p_new_password: pw });
+  if (error) fail("設定專屬下載密碼失敗", error);
+}

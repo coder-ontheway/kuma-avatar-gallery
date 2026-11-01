@@ -1,10 +1,13 @@
 import { createContext, useCallback, useContext, useRef, useState, type FormEvent, type ReactNode } from "react";
 import Modal from "./Modal";
-import { DownloadError, hasValidToken, verifyPassword } from "../lib/download";
+import { DownloadError, hasValidToken, verifyPassword, type AuthScope } from "../lib/download";
 
 interface Ctx {
-  /** 確認已有有效的下載授權；沒有時跳出密碼視窗。回傳 false 代表使用者取消 */
-  ensureAuth: () => Promise<boolean>;
+  /**
+   * 確認已有有效的下載授權；沒有時跳出密碼視窗。回傳 false 代表使用者取消。
+   * scope 為主題系列 id 時，要求輸入該系列的專屬下載密碼。
+   */
+  ensureAuth: (scope?: AuthScope) => Promise<boolean>;
 }
 
 const DownloadAuthContext = createContext<Ctx>({ ensureAuth: async () => false });
@@ -14,19 +17,19 @@ export function useDownloadAuth() {
 }
 
 export function DownloadAuthProvider({ children }: { children: ReactNode }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState<{ scope: AuthScope } | null>(null);
   const resolver = useRef<((ok: boolean) => void) | null>(null);
 
-  const ensureAuth = useCallback(() => {
-    if (hasValidToken()) return Promise.resolve(true);
+  const ensureAuth = useCallback((scope: AuthScope = null) => {
+    if (hasValidToken(scope)) return Promise.resolve(true);
     return new Promise<boolean>((resolve) => {
       resolver.current = resolve;
-      setOpen(true);
+      setOpen({ scope });
     });
   }, []);
 
   const finish = useCallback((ok: boolean) => {
-    setOpen(false);
+    setOpen(null);
     resolver.current?.(ok);
     resolver.current = null;
   }, []);
@@ -34,12 +37,12 @@ export function DownloadAuthProvider({ children }: { children: ReactNode }) {
   return (
     <DownloadAuthContext.Provider value={{ ensureAuth }}>
       {children}
-      {open && <PasswordDialog onDone={finish} />}
+      {open && <PasswordDialog scope={open.scope} onDone={finish} />}
     </DownloadAuthContext.Provider>
   );
 }
 
-function PasswordDialog({ onDone }: { onDone: (ok: boolean) => void }) {
+function PasswordDialog({ scope, onDone }: { scope: AuthScope; onDone: (ok: boolean) => void }) {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -54,7 +57,7 @@ function PasswordDialog({ onDone }: { onDone: (ok: boolean) => void }) {
     setBusy(true);
     setError("");
     try {
-      await verifyPassword(password);
+      await verifyPassword(password, scope);
       onDone(true);
     } catch (err) {
       setError(err instanceof DownloadError ? err.message : "驗證失敗，請稍後再試。");
@@ -65,9 +68,13 @@ function PasswordDialog({ onDone }: { onDone: (ok: boolean) => void }) {
   }
 
   return (
-    <Modal title="輸入下載密碼" onClose={cancel}>
+    <Modal title={scope ? "輸入生命共同體下載密碼" : "輸入下載密碼"} onClose={cancel}>
       <form onSubmit={submit} className="stack">
-        <p className="muted">下載原始作品需要粉絲專屬下載密碼。密碼請見 KUMA 工作室 Facebook 粉專公告。</p>
+        {scope ? (
+          <p className="muted">熊兔生命共同體限定收藏館有自己的專屬下載密碼，和原本收藏館的密碼不同。密碼請見 KUMA 工作室 Facebook 粉專公告。</p>
+        ) : (
+          <p className="muted">下載原始作品需要粉絲專屬下載密碼。密碼請見 KUMA 工作室 Facebook 粉專公告。</p>
+        )}
         <label className="field">
           <span>下載密碼</span>
           <input

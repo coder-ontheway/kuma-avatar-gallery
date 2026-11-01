@@ -5,6 +5,9 @@ import { signToken } from "./token.ts";
 
 const SECRET = "test-secret-test-secret-test-secret-0123456789";
 const PASSWORD = "kuma-correct-pw";
+const LIFE_PASSWORD = "life-only-pw";
+const COL = "22222222-0000-4000-8000-000000000001";
+const OTHER_COL = "22222222-0000-4000-8000-000000000002";
 
 function img(id: string, extra: Partial<ImageRow> = {}): ImageRow {
   return {
@@ -21,7 +24,7 @@ const W5 = "11111111-0000-4000-8000-000000000005";
 
 function work(id: string, no: number, extra: Partial<CollectionWorkRow> = {}): CollectionWorkRow {
   return {
-    id, work_number: no, nickname: `稱號${no}`, title: `作品${no}`, original_path: `life/${id}/orig.jpg`, mime_type: "image/jpeg",
+    id, collection_id: COL, work_number: no, nickname: `稱號${no}`, title: `作品${no}`, original_path: `life/${id}/orig.jpg`, mime_type: "image/jpeg",
     file_size: 2000, sort_order: no * 10, is_published: true, is_downloadable: true, collection_public: true, ...extra,
   };
 }
@@ -31,8 +34,8 @@ const ID2 = "00000000-0000-4000-8000-000000000002";
 const ID3 = "00000000-0000-4000-8000-000000000003";
 const ID4 = "00000000-0000-4000-8000-000000000004";
 
-function makeDeps(over: Partial<Deps> & { version?: number; enabled?: boolean; monthly?: boolean } = {}) {
-  const calls = { verify: [] as string[], signed: [] as string[], recorded: [] as string[] };
+function makeDeps(over: Partial<Deps> & { version?: number; enabled?: boolean; monthly?: boolean; colVersion?: number; colConfigured?: boolean } = {}) {
+  const calls = { verify: [] as string[], verifyCol: [] as string[], signed: [] as string[], recorded: [] as string[] };
   let fails = 0;
   const deps: Deps = {
     tokenSecret: SECRET,
@@ -44,6 +47,18 @@ function makeDeps(over: Partial<Deps> & { version?: number; enabled?: boolean; m
       fails++;
       return Promise.resolve({ ok: false, reason: "wrong", remaining: 5 - fails });
     },
+    verifyCollectionPassword(collectionId, password, clientHash): Promise<VerifyResult> {
+      calls.verifyCol.push(`${collectionId}:${clientHash}`);
+      if (collectionId !== COL || over.colConfigured === false) return Promise.resolve({ ok: false, reason: "not_configured" });
+      if (password === LIFE_PASSWORD) return Promise.resolve({ ok: true, version: over.colVersion ?? 1 });
+      return Promise.resolve({ ok: false, reason: "wrong", remaining: 4 });
+    },
+    collectionDownloadState: (collectionId) =>
+      Promise.resolve(
+        collectionId === COL && over.colConfigured !== false
+          ? { version: over.colVersion ?? 1, configured: true }
+          : { version: 0, configured: false },
+      ),
     downloadState: () => Promise.resolve({ version: over.version ?? 3, configured: true, downloads_enabled: over.enabled ?? true }),
     monthlyPublic: () => Promise.resolve(over.monthly ?? true),
     listImages: (ids) => {
@@ -79,6 +94,12 @@ function post(body: unknown, headers: Record<string, string> = {}) {
     headers: { "content-type": "application/json", "x-forwarded-for": "203.0.113.9, 10.0.0.1", ...headers },
     body: JSON.stringify(body),
   });
+}
+
+async function getLifeToken(deps: Deps, collection = COL) {
+  const res = await handle(post({ action: "verify", password: LIFE_PASSWORD, collection }), deps);
+  assertEquals(res.status, 200);
+  return (await res.json()).token as string;
 }
 
 async function getToken(deps: Deps) {
@@ -290,7 +311,7 @@ Deno.test("生命共同體：沒有下載憑證不能取得系列原圖", async 
 
 Deno.test("生命共同體：通過密碼後可取得單張系列原圖，且不會查到原收藏館", async () => {
   const { deps, calls } = makeDeps();
-  const token = await getToken(deps);
+  const token = await getLifeToken(deps);
   const res = await handle(post({ action: "sign", token, source: "collection", ids: [W2], purpose: "card" }), deps);
   assertEquals(res.status, 200);
   const body = await res.json();
@@ -302,7 +323,7 @@ Deno.test("生命共同體：通過密碼後可取得單張系列原圖，且不
 
 Deno.test("生命共同體：全部下載只包含已公開、已上傳、系列公開的作品", async () => {
   const { deps, calls } = makeDeps();
-  const token = await getToken(deps);
+  const token = await getLifeToken(deps);
   const res = await handle(post({ action: "sign", token, source: "collection", all: true }), deps);
   assertEquals(res.status, 200);
   const body = await res.json();
@@ -312,7 +333,7 @@ Deno.test("生命共同體：全部下載只包含已公開、已上傳、系列
 
 Deno.test("生命共同體：草稿、待上傳或系列未公開的作品不能下載", async () => {
   const { deps } = makeDeps();
-  const token = await getToken(deps);
+  const token = await getLifeToken(deps);
   for (const id of [W3, W4, W5]) {
     const res = await handle(post({ action: "sign", token, source: "collection", ids: [id] }), deps);
     assertEquals(res.status, 404);
@@ -330,7 +351,91 @@ Deno.test("原收藏館的 ZIP 不包含系列作品", async () => {
 Deno.test("未知的作品來源與無字版系列請求會被拒絕", async () => {
   const { deps } = makeDeps();
   const token = await getToken(deps);
+  const lifeToken = await getLifeToken(deps);
   assertEquals((await handle(post({ action: "sign", token, source: "x", ids: [W1] }), deps)).status, 400);
-  assertEquals((await handle(post({ action: "sign", token, source: "collection", variant: "plain", ids: [W1] }), deps)).status, 400);
+  assertEquals((await handle(post({ action: "sign", token: lifeToken, source: "collection", variant: "plain", ids: [W1] }), deps)).status, 400);
   assertEquals((await handle(post({ action: "sign", token, purpose: "card", ids: [ID1] }), deps)).status, 400);
+});
+
+Deno.test("專屬密碼：生命共同體密碼以系列 id 驗證，不呼叫原本的密碼驗證", async () => {
+  const { deps, calls } = makeDeps();
+  const res = await handle(post({ action: "verify", password: LIFE_PASSWORD, collection: COL }), deps);
+  assertEquals(res.status, 200);
+  assertEquals(calls.verify.length, 0);
+  assertEquals(calls.verifyCol.length, 1);
+  assert(calls.verifyCol[0].startsWith(`${COL}:`));
+  assert(!calls.verifyCol[0].includes("203.0.113.9"));
+});
+
+Deno.test("專屬密碼：原本的下載密碼不能通過生命共同體驗證", async () => {
+  const { deps } = makeDeps();
+  const res = await handle(post({ action: "verify", password: PASSWORD, collection: COL }), deps);
+  assertEquals(res.status, 401);
+  assertEquals((await res.json()).error, "wrong_password");
+});
+
+Deno.test("專屬密碼：生命共同體密碼不能通過原本收藏館的驗證", async () => {
+  const { deps } = makeDeps();
+  const res = await handle(post({ action: "verify", password: LIFE_PASSWORD }), deps);
+  assertEquals(res.status, 401);
+});
+
+Deno.test("專屬密碼：原本密碼的授權不能下載生命共同體作品", async () => {
+  const { deps, calls } = makeDeps();
+  const token = await getToken(deps);
+  for (const body of [{ ids: [W1] }, { all: true }]) {
+    const res = await handle(post({ action: "sign", token, source: "collection", ...body }), deps);
+    assertEquals(res.status, 401);
+    assertEquals((await res.json()).error, "token_invalid");
+  }
+  assertEquals(calls.signed.length, 0);
+});
+
+Deno.test("專屬密碼：生命共同體授權不能下載原本收藏館作品", async () => {
+  const { deps, calls } = makeDeps();
+  const token = await getLifeToken(deps);
+  for (const body of [{ ids: [ID1] }, { all: true }]) {
+    const res = await handle(post({ action: "sign", token, ...body }), deps);
+    assertEquals(res.status, 401);
+  }
+  assertEquals(calls.signed.length, 0);
+});
+
+Deno.test("專屬密碼：尚未設定時回覆 503 與繁中訊息", async () => {
+  const { deps } = makeDeps({ colConfigured: false });
+  const res = await handle(post({ action: "verify", password: LIFE_PASSWORD, collection: COL }), deps);
+  assertEquals(res.status, 503);
+  assertEquals((await res.json()).message, "這個系列尚未設定專屬下載密碼，請聯絡網站管理員。");
+});
+
+Deno.test("專屬密碼：更換後舊授權失效；原本密碼的授權不受影響", async () => {
+  const { deps } = makeDeps();
+  const lifeToken = await getLifeToken(deps);
+  const siteToken = await getToken(deps);
+  const { deps: after } = makeDeps({ colVersion: 2 });
+  assertEquals((await handle(post({ action: "sign", token: lifeToken, source: "collection", ids: [W1] }), after)).status, 401);
+  assertEquals((await handle(post({ action: "sign", token: siteToken, ids: [ID1] }), after)).status, 200);
+});
+
+Deno.test("專屬密碼：授權只能下載該系列的作品", async () => {
+  const { deps } = makeDeps({
+    listCollectionWorks: () => Promise.resolve([work(W1, 1), work(W2, 2, { collection_id: OTHER_COL })]),
+  });
+  const token = await getLifeToken(deps);
+  const res = await handle(post({ action: "sign", token, source: "collection", all: true }), deps);
+  assertEquals(res.status, 200);
+  assertEquals((await res.json()).items.map((i: { id: string }) => i.id), [W1]);
+});
+
+Deno.test("專屬密碼：系列 id 格式錯誤會被拒絕", async () => {
+  const { deps, calls } = makeDeps();
+  const res = await handle(post({ action: "verify", password: LIFE_PASSWORD, collection: "x" }), deps);
+  assertEquals(res.status, 400);
+  assertEquals(calls.verifyCol.length + calls.verify.length, 0);
+});
+
+Deno.test("專屬密碼：偽造系列 id 的授權（簽章不符）會被拒絕", async () => {
+  const { deps } = makeDeps();
+  const { token } = await signToken("another-secret-another-secret-another-secret", 1, 900, Date.now(), COL);
+  assertEquals((await handle(post({ action: "sign", token, source: "collection", ids: [W1] }), deps)).status, 401);
 });
