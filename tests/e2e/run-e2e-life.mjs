@@ -137,7 +137,7 @@ async function login(page, user) {
   await page.getByLabel("電子郵件").fill(user.email);
   await page.getByLabel("密碼", { exact: true }).fill(user.password);
   await page.getByRole("button", { name: "登入" }).click();
-  await page.getByRole("heading", { name: "作品管理" }).waitFor();
+  await page.getByRole("heading", { name: "系列管理中心" }).waitFor();
 }
 async function scrollAll(page) {
   const h = await page.evaluate(() => document.body.scrollHeight);
@@ -162,7 +162,7 @@ debugPages.A = pageA;
 await step("初始待上傳狀態", async () => {
   check("找到十張原始照片", photos.length === 10, `${photos.length} 張`);
   await login(pageA, A);
-  await pageA.getByRole("link", { name: "生命共同體" }).click();
+  await pageA.goto(`${SITE}#/admin/life`); // 舊網址導向第一系列的管理頁
   await pageA.getByRole("heading", { name: "熊兔生命共同體" }).waitFor();
   const items = pageA.getByTestId("life-admin-item");
   await items.first().waitFor();
@@ -192,7 +192,7 @@ await step("批次上傳十張", async () => {
   const paths = sql("select string_agg(original_path, ',' order by work_number) from public.collection_works").split(",");
   const same = paths.every((p, i) => md5(fs.readFileSync(path.join(OUT, "storage", "originals", p))) === md5(fs.readFileSync(path.join(ART, photos[i]))));
   check("原圖未經修改（位元組與上傳檔案完全相同）", same);
-  check("原圖存放於私有 originals 的 life/ 路徑", paths.every((p) => p.startsWith("life/")));
+  check("原圖存放於私有 originals 的 collections/ 路徑", paths.every((p) => p.startsWith("collections/")));
   check("上傳後先是草稿", sql("select count(*) from public.collection_works where is_published") === "0");
   await pageA.screenshot({ path: path.join(OUT, "admin-life-uploaded.png"), fullPage: true });
 });
@@ -217,7 +217,7 @@ debugPages.B = pageB;
 
 await step("管理員 B 管理作品", async () => {
   await login(pageB, B);
-  await pageB.getByRole("link", { name: "生命共同體" }).click();
+  await pageB.goto(`${SITE}#/admin/life`); // 舊網址導向第一系列的管理頁
   await pageB.getByTestId("life-admin-item").first().waitFor();
   check("管理員 B 看得到相同的十款作品", (await pageB.getByTestId("life-admin-item").count()) === 10);
   const item = pageB.getByTestId("life-admin-item").filter({ hasText: "No.002" });
@@ -259,18 +259,18 @@ await step("管理員 B 管理作品", async () => {
 });
 
 await step("生命共同體專屬下載密碼", async () => {
-  const form = pageB.getByTestId("life-password-form");
-  await form.getByText(/尚未設定/).waitFor();
+  const form = pageB.getByTestId("collection-password-form");
+  await form.getByText("未設定", { exact: true }).waitFor();
   check("後臺顯示專屬密碼尚未設定", true);
-  await form.getByLabel("新的專屬下載密碼（6～64 字元）").fill(LIFE_PASS);
+  await form.getByLabel("新的下載密碼（6～64 字元）").fill(LIFE_PASS);
   await form.getByLabel("再輸入一次").fill("different-1");
-  await form.getByRole("button", { name: "設定專屬下載密碼" }).click();
+  await form.getByRole("button", { name: "設定下載密碼" }).click();
   await form.getByText("兩次輸入的密碼不一致。").waitFor();
   check("兩次輸入不一致時不會儲存", sql("select count(*) from private.collection_download_secret") === "0");
   await form.getByLabel("再輸入一次").fill(LIFE_PASS);
-  await form.getByRole("button", { name: "設定專屬下載密碼" }).click();
-  await form.getByText(/專屬下載密碼已更新/).waitFor();
-  await form.getByText(/已設定（第 1 版/).waitFor();
+  await form.getByRole("button", { name: "設定下載密碼" }).click();
+  await form.getByText(/的下載密碼已更新/).waitFor();
+  await form.getByText(/第 1 版/).waitFor();
   check("管理員 B 可以設定生命共同體專屬下載密碼", sql("select version from private.collection_download_secret") === "1");
   check("專屬密碼以雜湊存放（不是明文）", sql(`select (password_hash <> '${LIFE_PASS}' and password_hash like '$2%')::text from private.collection_download_secret`) === "true");
   check("設定專屬密碼不影響原本收藏館的密碼", sql("select version from private.download_secret") === "1");
@@ -319,10 +319,10 @@ await step("原本收藏館與入口", async () => {
   await fan.getByRole("heading", { name: "KUMA 熊兔大頭貼收藏館", level: 1 }).waitFor();
   await fan.getByTestId("art-card").first().waitFor();
   check("原本收藏館正常顯示原本作品", (await fan.getByTestId("art-card").count()) >= 1);
-  await fan.getByTestId("life-entry").waitFor();
-  check("首頁有「熊兔生命共同體限定收藏館」入口", await fan.getByTestId("life-entry").getByText("熊兔生命共同體限定收藏館").isVisible());
+  await fan.locator('[data-testid=series-card][data-slug="one-heart-one-life"]').waitFor();
+  check("首頁系列清單有「熊兔生命共同體」", await fan.locator('[data-testid=series-card][data-slug="one-heart-one-life"]').getByText("KUMA 熊兔生命共同體").isVisible());
   await fan.screenshot({ path: path.join(OUT, "home-entry.png") });
-  await fan.getByTestId("life-entry").click();
+  await fan.locator('[data-testid=series-card][data-slug="one-heart-one-life"]').click();
   await fan.getByRole("heading", { name: "KUMA 熊兔生命共同體", level: 1 }).waitFor();
   await fan.getByTestId("life-card").first().waitFor();
   await scrollAll(fan);
@@ -452,8 +452,8 @@ await step("宣言大頭貼製作器", async () => {
 
 await step("下載密碼與大頭貼下載", async () => {
   await fan.getByRole("button", { name: "下載我的專屬大頭貼" }).click();
-  await fan.getByRole("heading", { name: "輸入生命共同體下載密碼" }).waitFor();
-  check("密碼視窗說明這是生命共同體專屬密碼", await fan.getByText(/有自己的專屬下載密碼/).isVisible());
+  await fan.getByRole("heading", { name: "輸入「KUMA 熊兔生命共同體」下載密碼" }).waitFor();
+  check("密碼視窗說明這是生命共同體專屬密碼", await fan.getByText(/都有自己的專屬下載密碼/).isVisible());
   await fan.getByLabel("下載密碼", { exact: true }).fill("wrong-password");
   await fan.getByRole("button", { name: "確認" }).click();
   await fan.getByText(/下載密碼不正確/).waitFor();
@@ -492,7 +492,7 @@ await step("收藏卡", async () => {
   await d.saveAs(file);
   const size = jpegSize(fs.readFileSync(file));
   check("單張收藏卡下載為獨立圖片檔（1200×1800 JPG）", size?.w === 1200 && size?.h === 1800, `${d.suggestedFilename()} ${size?.w}×${size?.h}`);
-  check("收藏卡檔名含編號與稱號", d.suggestedFilename() === "KUMA_生命共同體_No.003_星空守護體_收藏卡.jpg", d.suggestedFilename());
+  check("收藏卡檔名含編號與稱號", d.suggestedFilename() === "KUMA_熊兔生命共同體_No.003_星空守護體_收藏卡.jpg", d.suggestedFilename());
   await fan.getByRole("button", { name: "關閉" }).click();
 
   await fan.goto(`${SITE}#/life`);

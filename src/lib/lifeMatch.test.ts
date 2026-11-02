@@ -39,3 +39,31 @@ describe("批次上傳對應作品編號", () => {
     expect(r[0]).toMatchObject({ work_number: 11, isNew: true, byName: true });
   });
 });
+
+describe("完整照片＋大頭貼版配對（熊大寵妻系列檔名）", () => {
+  const names = ["01_bedtime", "02_tea", "03_umbrella", "04_breakfast", "05_garden"];
+  const files = names.flatMap((n) => [f(`bear_loves_rabbit_${n}.png`), f(`bear_loves_rabbit_avatar_${n}.png`)]);
+
+  it("辨識底線包住的編號", () => {
+    expect(numberFromName("bear_loves_rabbit_03_umbrella.png")).toBe(3);
+    expect(numberFromName("bear_loves_rabbit_avatar_05_garden.png")).toBe(5);
+    expect(numberFromName("IMG_4755.jpeg")).toBeNull();
+  });
+
+  it("新系列：10 個檔案建立 5 筆作品，每筆各有完整照片與大頭貼版", async () => {
+    const { planBatch } = await import("./lifeMatch");
+    const plan = planBatch(files, []);
+    expect(plan.filter((p) => p.kind === "photo").map((p) => p.work_number).sort()).toEqual([1, 2, 3, 4, 5]);
+    expect(plan.filter((p) => p.kind === "avatar").map((p) => p.work_number).sort()).toEqual([1, 2, 3, 4, 5]);
+    for (const p of plan) expect(p.file.name.includes(`_0${p.work_number}_`)).toBe(true);
+    expect(new Set(plan.map((p) => p.work_number)).size).toBe(5);
+  });
+
+  it("沒有編號的大頭貼版與同名完整照片配對", async () => {
+    const { planBatch } = await import("./lifeMatch");
+    const plan = planBatch([f("tea.png"), f("tea_avatar.png"), f("garden.png"), f("garden-avatar.png")], []);
+    const n = (name: string) => plan.find((p) => p.file.name === name)!.work_number;
+    expect(n("tea_avatar.png")).toBe(n("tea.png"));
+    expect(n("garden-avatar.png")).toBe(n("garden.png"));
+  });
+});

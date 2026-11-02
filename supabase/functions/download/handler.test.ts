@@ -439,3 +439,102 @@ Deno.test("專屬密碼：偽造系列 id 的授權（簽章不符）會被拒�
   const { token } = await signToken("another-secret-another-secret-another-secret", 1, 900, Date.now(), COL);
   assertEquals((await handle(post({ action: "sign", token, source: "collection", ids: [W1] }), deps)).status, 401);
 });
+
+// ---------------- KUMA STUDIO 多系列：每個系列獨立密碼 ----------------
+const COL_A = "33333333-0000-4000-8000-00000000000a";
+const COL_B = "33333333-0000-4000-8000-00000000000b";
+const COL_C = "33333333-0000-4000-8000-00000000000c";
+const PW: Record<string, string> = { [COL_A]: "test-a-pw", [COL_B]: "test-b-pw", [COL_C]: "test-c-pw" };
+const WA = "44444444-0000-4000-8000-00000000000a";
+const WB = "44444444-0000-4000-8000-00000000000b";
+const WC = "44444444-0000-4000-8000-00000000000c";
+
+function multiDeps(state: Record<string, { version: number; enabled: boolean }> = {}) {
+  const st = (c: string) => state[c] ?? { version: 1, enabled: true };
+  return makeDeps({
+    verifyCollectionPassword(collectionId, password) {
+      if (!PW[collectionId]) return Promise.resolve({ ok: false, reason: "not_available" });
+      if (!st(collectionId).enabled) return Promise.resolve({ ok: false, reason: "disabled" });
+      return Promise.resolve(password === PW[collectionId] ? { ok: true, version: st(collectionId).version } : { ok: false, reason: "wrong", remaining: 4 });
+    },
+    collectionDownloadState: (c) => Promise.resolve(PW[c] ? { version: st(c).version, configured: true, enabled: st(c).enabled } : { version: 0, configured: false, enabled: false }),
+    listCollectionWorks: (ids) => {
+      const all = [work(WA, 1, { collection_id: COL_A }), work(WB, 1, { collection_id: COL_B }), work(WC, 1, { collection_id: COL_C })];
+      return Promise.resolve(ids ? all.filter((r) => ids.includes(r.id)) : all);
+    },
+  }).deps;
+}
+
+async function tokenFor(deps: Deps, col: string, password = PW[col]) {
+  const res = await handle(post({ action: "verify", password, collection: col }), deps);
+  return { status: res.status, token: res.ok ? ((await res.json()).token as string) : null };
+}
+
+Deno.test("多系列：A 系列密碼不能通過 B、C 系列", async () => {
+  const deps = multiDeps();
+  assertEquals((await tokenFor(deps, COL_B, PW[COL_A])).status, 401);
+  assertEquals((await tokenFor(deps, COL_C, PW[COL_B])).status, 401);
+  assertEquals((await tokenFor(deps, COL_A)).status, 200);
+});
+
+Deno.test("多系列：A 系列的授權不能下載 B 系列作品（指定 id 或全部 ZIP）", async () => {
+  const deps = multiDeps();
+  const { token } = await tokenFor(deps, COL_A);
+  const one = await handle(post({ action: "sign", token, source: "collection", ids: [WB] }), deps);
+  assertEquals(one.status, 404);
+  const mixed = await handle(post({ action: "sign", token, source: "collection", ids: [WA, WB, WC] }), deps);
+  assertEquals((await mixed.json()).items.map((i: { id: string }) => i.id), [WA]);
+  const zip = await handle(post({ action: "sign", token, source: "collection", all: true }), deps);
+  assertEquals((await zip.json()).items.map((i: { id: string }) => i.id), [WA]);
+});
+
+Deno.test("多系列：修改 A 系列密碼後 A 的授權失效，B、C 不受影響", async () => {
+  const before = multiDeps();
+  const a = (await tokenFor(before, COL_A)).token;
+  const b = (await tokenFor(before, COL_B)).token;
+  const after = multiDeps({ [COL_A]: { version: 2, enabled: true } });
+  assertEquals((await handle(post({ action: "sign", token: a, source: "collection", ids: [WA] }), after)).status, 401);
+  assertEquals((await handle(post({ action: "sign", token: b, source: "collection", ids: [WB] }), after)).status, 200);
+});
+
+Deno.test("多系列：停用 A 系列下載後，A 的既有授權與驗證都被擋，B 正常", async () => {
+  const before = multiDeps();
+  const a = (await tokenFor(before, COL_A)).token;
+  const b = (await tokenFor(before, COL_B)).token;
+  const after = multiDeps({ [COL_A]: { version: 1, enabled: false } });
+  const res = await handle(post({ action: "sign", token: a, source: "collection", ids: [WA] }), after);
+  assertEquals(res.status, 403);
+  assertEquals((await res.json()).error, "collection_download_disabled");
+  assertEquals((await tokenFor(after, COL_A)).status, 403);
+  assertEquals((await handle(post({ action: "sign", token: b, source: "collection", ids: [WB] }), after)).status, 200);
+});
+
+Deno.test("多系列：不存在或下架的系列回覆 404", async () => {
+  const deps = multiDeps();
+  assertEquals((await tokenFor(deps, "33333333-0000-4000-8000-0000000000ff", "x")).status, 404);
+});
+
+Deno.test("多系列：回應不含密碼或私有路徑以外的資訊", async () => {
+  const deps = multiDeps();
+  const res = await handle(post({ action: "verify", password: PW[COL_A], collection: COL_A }), deps);
+  const text = await res.text();
+  assert(!text.includes(PW[COL_A]));
+  assert(!text.includes("orig.jpg"));
+});
+
+Deno.test("多系列：大頭貼版原圖需要該系列密碼，且只回傳有大頭貼版的作品", async () => {
+  const { deps } = makeDeps({
+    listCollectionWorks: () =>
+      Promise.resolve([
+        work(W1, 1, { avatar_original_path: "c/w1/avatar.png", avatar_mime_type: "image/png", avatar_file_size: 500 }),
+        work(W2, 2),
+      ]),
+  });
+  const token = await getLifeToken(deps);
+  const res = await handle(post({ action: "sign", token, source: "collection", variant: "avatar", ids: [W1, W2], purpose: "avatar" }), deps);
+  assertEquals(res.status, 200);
+  const items = (await res.json()).items;
+  assertEquals(items.map((i: { id: string }) => i.id), [W1]);
+  assert(items[0].url.includes("c/w1/avatar.png"));
+  assertEquals((await handle(post({ action: "sign", variant: "avatar", ids: [ID1], token: await getToken(deps) }), deps)).status, 400);
+});

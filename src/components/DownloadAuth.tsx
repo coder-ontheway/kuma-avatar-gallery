@@ -5,9 +5,10 @@ import { DownloadError, hasValidToken, verifyPassword, type AuthScope } from "..
 interface Ctx {
   /**
    * 確認已有有效的下載授權；沒有時跳出密碼視窗。回傳 false 代表使用者取消。
-   * scope 為主題系列 id 時，要求輸入該系列的專屬下載密碼。
+   * scope 為系列 id 時，要求輸入「該系列」的專屬下載密碼（label 為顯示用的系列名稱）。
+   * 每個系列的授權分開保存：通過 A 系列不代表可以下載 B 系列。
    */
-  ensureAuth: (scope?: AuthScope) => Promise<boolean>;
+  ensureAuth: (scope?: AuthScope, label?: string) => Promise<boolean>;
 }
 
 const DownloadAuthContext = createContext<Ctx>({ ensureAuth: async () => false });
@@ -17,14 +18,14 @@ export function useDownloadAuth() {
 }
 
 export function DownloadAuthProvider({ children }: { children: ReactNode }) {
-  const [open, setOpen] = useState<{ scope: AuthScope } | null>(null);
+  const [open, setOpen] = useState<{ scope: AuthScope; label?: string } | null>(null);
   const resolver = useRef<((ok: boolean) => void) | null>(null);
 
-  const ensureAuth = useCallback((scope: AuthScope = null) => {
+  const ensureAuth = useCallback((scope: AuthScope = null, label?: string) => {
     if (hasValidToken(scope)) return Promise.resolve(true);
     return new Promise<boolean>((resolve) => {
       resolver.current = resolve;
-      setOpen({ scope });
+      setOpen({ scope, label });
     });
   }, []);
 
@@ -37,12 +38,12 @@ export function DownloadAuthProvider({ children }: { children: ReactNode }) {
   return (
     <DownloadAuthContext.Provider value={{ ensureAuth }}>
       {children}
-      {open && <PasswordDialog scope={open.scope} onDone={finish} />}
+      {open && <PasswordDialog scope={open.scope} label={open.label} onDone={finish} />}
     </DownloadAuthContext.Provider>
   );
 }
 
-function PasswordDialog({ scope, onDone }: { scope: AuthScope; onDone: (ok: boolean) => void }) {
+function PasswordDialog({ scope, label, onDone }: { scope: AuthScope; label?: string; onDone: (ok: boolean) => void }) {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -68,10 +69,12 @@ function PasswordDialog({ scope, onDone }: { scope: AuthScope; onDone: (ok: bool
   }
 
   return (
-    <Modal title={scope ? "輸入生命共同體下載密碼" : "輸入下載密碼"} onClose={cancel}>
-      <form onSubmit={submit} className="stack">
+    <Modal title={scope ? `輸入「${label ?? "這個系列"}」下載密碼` : "輸入下載密碼"} onClose={cancel}>
+      <form onSubmit={submit} className="stack" data-testid="password-dialog">
         {scope ? (
-          <p className="muted">熊兔生命共同體限定收藏館有自己的專屬下載密碼，和原本收藏館的密碼不同。密碼請見 KUMA 工作室 Facebook 粉專公告。</p>
+          <p className="muted">
+            每個系列都有自己的專屬下載密碼，請輸入「{label ?? "這個系列"}」的密碼（其他系列或大頭貼收藏館的密碼不能使用）。密碼請透過 KUMA 工作室 Facebook 粉專私訊取得。
+          </p>
         ) : (
           <p className="muted">下載原始作品需要粉絲專屬下載密碼。密碼請見 KUMA 工作室 Facebook 粉專公告。</p>
         )}
@@ -99,7 +102,7 @@ function PasswordDialog({ scope, onDone }: { scope: AuthScope; onDone: (ok: bool
             {busy ? "驗證中…" : "確認"}
           </button>
         </div>
-        <p className="tiny muted">驗證成功後 15 分鐘內下載不需再次輸入。</p>
+        <p className="tiny muted">驗證成功後 15 分鐘內下載{scope ? "這個系列" : ""}不需再次輸入。</p>
       </form>
     </Modal>
   );

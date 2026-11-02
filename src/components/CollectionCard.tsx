@@ -5,7 +5,7 @@ import { useDownloadAuth } from "./DownloadAuth";
 import { previewUrl } from "../lib/api";
 import { CARD_H, CARD_W, drawCard, ensureCardFonts, formatNo } from "../lib/card";
 import { DownloadError } from "../lib/download";
-import { cardInfo, downloadCard, lifeAvatarTitle } from "../lib/lifeDownload";
+import { cardInfo, collectionAvatarTitle, downloadCard } from "../lib/collectionDownload";
 import type { Platform } from "../lib/crop";
 import type { Collection, CollectionWork } from "../lib/types";
 
@@ -27,13 +27,13 @@ function useImage(src: string | null) {
   return { img, error };
 }
 
-/** 熊兔生命共同體身份證（網頁顯示） */
+/** 系列身份證（網頁顯示）：標題、宣言名稱都由管理員在後臺設定 */
 export function IdCard({ collection, work }: { collection: Collection; work: CollectionWork }) {
   return (
     <article className="id-card" data-testid="id-card">
       <div className="id-card-head">
         <span className="id-card-brand">KUMA STUDIO</span>
-        <span className="id-card-kind">熊兔生命共同體身份證</span>
+        <span className="id-card-kind">{collection.id_card_title}</span>
       </div>
       <div className="id-card-body">
         <div className="id-card-photo">
@@ -41,7 +41,11 @@ export function IdCard({ collection, work }: { collection: Collection; work: Col
         </div>
         <dl className="id-card-fields">
           <div>
-            <dt>生命共同體編號</dt>
+            <dt>系列</dt>
+            <dd>{collection.name}</dd>
+          </div>
+          <div>
+            <dt>作品編號</dt>
             <dd className="id-no">{formatNo(work.work_number)}</dd>
           </div>
           <div>
@@ -56,19 +60,19 @@ export function IdCard({ collection, work }: { collection: Collection; work: Col
           )}
           {work.description && (
             <div>
-              <dt>生命共同體介紹</dt>
+              <dt>作品介紹</dt>
               <dd>{work.description}</dd>
             </div>
           )}
           {work.manifesto && (
             <div>
-              <dt>專屬愛心宣言</dt>
+              <dt>{collection.manifesto_label}</dt>
               <dd className="id-manifesto">❤ {work.manifesto}</dd>
             </div>
           )}
         </dl>
       </div>
-      <div className="id-card-foot">{collection.name_en || "ONE HEART, ONE LIFE"}</div>
+      <div className="id-card-foot">{collection.name_en || "KUMA STUDIO COLLECTION"}</div>
     </article>
   );
 }
@@ -120,13 +124,13 @@ export function CardModal({
       setMsg({ type: "error", text: "目前暫停開放下載，請留意粉專公告。" });
       return;
     }
-    if (!(await ensureAuth(collection.id))) return;
+    if (!(await ensureAuth(collection.id, collection.name))) return;
     setBusy(true);
     try {
       try {
         await downloadCard(collection, work, manifesto);
       } catch (e) {
-        if (e instanceof DownloadError && e.code === "token_invalid" && (await ensureAuth(collection.id))) await downloadCard(collection, work, manifesto);
+        if (e instanceof DownloadError && e.code === "token_invalid" && (await ensureAuth(collection.id, collection.name))) await downloadCard(collection, work, manifesto);
         else throw e;
       }
       setMsg({ type: "ok", text: "收藏卡下載完成！" });
@@ -148,7 +152,7 @@ export function CardModal({
         <div className="stack">
           <div className="seg" role="group" aria-label="收藏卡宣言">
             <button type="button" className={mode === "official" ? "active" : ""} aria-pressed={mode === "official"} onClick={() => setMode("official")}>
-              官方宣言
+              官方{collection.manifesto_label}
             </button>
             <button type="button" className={mode === "mine" ? "active" : ""} aria-pressed={mode === "mine"} onClick={() => setMode("mine")}>
               我的宣言版本
@@ -157,7 +161,7 @@ export function CardModal({
           {mode === "mine" && (
             <div className="stack">
               <label className="field">
-                <span>我的生命共同體宣言（最多 24 字，可用 Emoji）</span>
+                <span>我的{collection.manifesto_label}（最多 24 字，可用 Emoji）</span>
                 <input value={mine} maxLength={24} onChange={(e) => setMine(e.target.value)} data-testid="card-manifesto" />
               </label>
               <div className="row wrap">
@@ -188,8 +192,8 @@ export function CardModal({
   );
 }
 
-/** 製作我的生命共同體大頭貼：沿用原本的大頭貼編輯器（平台裁切、文字、下載密碼） */
-export function LifeAvatarEditor({
+/** 製作系列大頭貼：沿用原本的大頭貼編輯器（平台裁切、文字、該系列的預設宣言與下載密碼） */
+export function CollectionAvatarEditor({
   collection,
   work,
   platform,
@@ -204,32 +208,36 @@ export function LifeAvatarEditor({
   onClose: () => void;
   previewOnly?: boolean;
 }) {
+  // 有大頭貼版時用大頭貼版（另外構圖的方形照片）；保護區域是依完整照片標的，大頭貼版不套用
+  const useAvatar = Boolean(work.avatar_preview_path && work.avatar_width && work.avatar_height);
   const life = useMemo<LifeOptions>(
     () => ({
-      zones: work.protect_zones,
+      zones: useAvatar ? [] : work.protect_zones,
       presets: [...new Set([work.manifesto, ...collection.manifestos].filter(Boolean))],
       defaultText: work.manifesto || collection.manifestos[0] || "",
     }),
-    [work, collection],
+    [work, collection, useAvatar],
   );
   return (
     <AvatarEditor
       image={{
         id: work.id,
         title: `${formatNo(work.work_number)} ${work.nickname}`,
-        preview_path: work.preview_path!,
-        mime_type: work.mime_type ?? "image/jpeg",
-        width: work.width ?? 1,
-        height: work.height ?? 1,
+        preview_path: useAvatar ? work.avatar_preview_path! : work.preview_path!,
+        mime_type: (useAvatar ? work.avatar_mime_type : work.mime_type) ?? "image/jpeg",
+        width: (useAvatar ? work.avatar_width : work.width) ?? 1,
+        height: (useAvatar ? work.avatar_height : work.height) ?? 1,
       }}
+      collectionVariant={useAvatar ? "avatar" : "original"}
       initialPlatform={platform}
       downloadsEnabled={downloadsEnabled}
       onClose={onClose}
       previewOnly={previewOnly}
       source="collection"
       collectionId={collection.id}
+      collectionName={collection.name}
       life={life}
-      fileTitle={lifeAvatarTitle(work)}
+      fileTitle={collectionAvatarTitle(collection, work)}
     />
   );
 }

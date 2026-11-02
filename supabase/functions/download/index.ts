@@ -82,7 +82,7 @@ Deno.serve((req) =>
     async listCollectionWorks(ids) {
       let q = admin
         .from("collection_works")
-        .select("id,collection_id,work_number,nickname,title,original_path,mime_type,file_size,sort_order,is_published,is_downloadable,collections!inner(is_published)")
+        .select("id,collection_id,work_number,nickname,title,original_path,mime_type,file_size,avatar_original_path,avatar_mime_type,avatar_file_size,sort_order,is_published,is_downloadable,collections!inner(is_published)")
         .eq("is_published", true)
         .eq("is_downloadable", true)
         .eq("collections.is_published", true)

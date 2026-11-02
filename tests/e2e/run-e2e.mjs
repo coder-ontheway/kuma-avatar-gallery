@@ -145,6 +145,9 @@ async function login(page, user) {
   await page.getByLabel("電子郵件").fill(user.email);
   await page.getByLabel("密碼", { exact: true }).fill(user.password);
   await page.getByRole("button", { name: "登入" }).click();
+  // 登入後進入「系列管理中心」；原本收藏館的作品在「大頭貼作品」
+  await page.getByRole("heading", { name: "系列管理中心" }).waitFor();
+  await page.getByRole("link", { name: "大頭貼作品" }).click();
 }
 
 const artworks = fs.existsSync(ART) ? fs.readdirSync(ART).filter((f) => /\.(png|jpe?g|webp)$/i.test(f)).sort() : [];
@@ -233,7 +236,7 @@ const bears = artworks.filter((f) => f.includes("熊大"));
 const filePayload = (f) => ({ name: f, mimeType: "image/png", buffer: fs.readFileSync(path.join(ART, f)) });
 
 async function uploadBatch(page, files, category) {
-  await page.getByRole("link", { name: "作品管理" }).click();
+  await page.getByRole("link", { name: "大頭貼作品" }).click();
   await page.getByLabel("預設分類").selectOption({ label: category });
   await page.getByTestId("upload-input").setInputFiles(files.map(filePayload));
   await page.waitForFunction((n) => document.querySelectorAll(".up-done, .up-error").length >= n, files.length, { timeout: 120000 });
@@ -647,7 +650,7 @@ await step("無字版（粉絲可拿掉作品上的文字）", async () => {
     plain.data.set(inside ? [120, 200, 140, 255] : [0, 0, 0, 0], i);
   }
   const plainBuf = PNG.sync.write(plain);
-  await pageA.getByRole("link", { name: "作品管理" }).click();
+  await pageA.getByRole("link", { name: "大頭貼作品" }).click();
   await pageA.getByTestId("plain-batch-input").setInputFiles([
     { name: "16_掰掰_無字.png", mimeType: "image/png", buffer: plainBuf },
     { name: "不存在的作品_無字.png", mimeType: "image/png", buffer: plainBuf },

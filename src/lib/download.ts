@@ -114,7 +114,8 @@ export interface SignedItem {
   url: string;
 }
 
-export type Variant = "original" | "plain";
+/** original：原圖；plain：原本收藏館的無字版；avatar：系列作品的大頭貼版 */
+export type Variant = "original" | "plain" | "avatar";
 
 /** 用途只用於後臺的下載次數統計；"card" 為生命共同體收藏卡 */
 export type Purpose = "avatar" | "original" | "card";
@@ -161,7 +162,7 @@ export async function fetchOriginal(
   collectionId: AuthScope = null,
 ): Promise<{ blob: Blob; item: SignedItem }> {
   const [item] = await (source === "collection"
-    ? sign({ ids: [id], purpose, source }, collectionId)
+    ? sign({ ids: [id], purpose, source, ...(variant === "avatar" ? { variant } : {}) }, collectionId)
     : sign({ ids: [id], variant, purpose }));
   if (!item) throw new DownloadError("找不到可下載的作品。", "not_found", 404);
   try {

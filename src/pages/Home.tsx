@@ -2,8 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import AvatarEditor from "../components/AvatarEditor";
 import { useDownloadAuth } from "../components/DownloadAuth";
 import { Link } from "react-router-dom";
-import { fetchCategories, fetchCollectionTeaser, fetchPublishedImages, fetchSettings, formatDate, LIFE_SLUG, previewUrl } from "../lib/api";
-import type { Collection } from "../lib/types";
+import { collectionPath, fetchCategories, fetchPublishedCollections, fetchPublishedImages, fetchSettings, formatDate, previewUrl } from "../lib/api";
+import type { CollectionSummary } from "../lib/types";
 import { PLATFORM_LABEL, type Platform } from "../lib/crop";
 import { DownloadError, downloadAllZip, type ZipProgress } from "../lib/download";
 import type { Category, PublicImage, SiteSettings } from "../lib/types";
@@ -37,11 +37,14 @@ export default function Home() {
     load();
   }, []);
 
-  // 熊兔生命共同體限定收藏館入口（獨立載入，失敗也不影響原本的收藏館）
-  const [life, setLife] = useState<{ collection: Collection; count: number; cover: string | null } | null>(null);
+  // KUMA STUDIO 原創系列（獨立載入，失敗也不影響原本的收藏館）。系列數量來自資料庫，後臺新增後自動出現。
+  const [series, setSeries] = useState<CollectionSummary[]>([]);
   useEffect(() => {
     let alive = true;
-    fetchCollectionTeaser(LIFE_SLUG).then((t) => alive && setLife(t));
+    fetchPublishedCollections().then(
+      (list) => alive && setSeries(list),
+      () => undefined,
+    );
     return () => {
       alive = false;
     };
@@ -91,17 +94,30 @@ export default function Home() {
           )}
         </section>
 
-        {life && (
-          <Link to="/life" className="life-entry" data-testid="life-entry">
-            {life.cover && <img src={previewUrl(life.cover)} alt="" className="life-entry-img" />}
-            <span className="life-entry-text">
-              <small>限定收藏館｜{life.count} 款</small>
-              <strong>熊兔生命共同體限定收藏館</strong>
-              <em>{life.collection.name_en}</em>
-              <span className="life-entry-tag">{life.collection.tagline}</span>
-              <span className="life-entry-go">進入收藏館 →</span>
-            </span>
-          </Link>
+        {series.length > 0 && (
+          <section id="series" className="section studio-series" aria-labelledby="series-title">
+            <div className="section-head">
+              <h2 id="series-title" className="section-title">
+                KUMA STUDIO 原創系列 <small>{series.length} 個系列</small>
+              </h2>
+            </div>
+            <p className="muted tiny">每個系列都有自己的作品、身份證、宣言與收藏卡；下載時請輸入該系列的專屬密碼（透過 Facebook 粉專私訊取得）。</p>
+            <div className="series-grid">
+              {series.map(({ collection: c, count, cover }) => (
+                <Link key={c.id} to={collectionPath(c)} className={`series-card theme-${c.card_theme}`} data-testid="series-card" data-slug={c.slug}>
+                  <span className="series-cover">{cover && <img src={previewUrl(cover)} alt="" loading="lazy" />}</span>
+                  <span className="series-text">
+                    <small>{count} 款作品</small>
+                    <strong>{c.name}</strong>
+                    {c.name_en && <em>{c.name_en}</em>}
+                    {c.tagline && <span className="series-tag">{c.tagline}</span>}
+                    {c.description && <span className="series-desc">{c.description}</span>}
+                    <span className="series-go">查看系列 →</span>
+                  </span>
+                </Link>
+              ))}
+            </div>
+          </section>
         )}
 
         <section className="howto card" aria-labelledby="howto-title">

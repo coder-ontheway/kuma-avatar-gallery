@@ -1,12 +1,14 @@
-# KUMA 熊兔大頭貼收藏館
+# KUMA STUDIO｜熊兔大頭貼多系列收藏館
 
-KUMA 工作室的熊大、兔兔原創照片大頭貼網站。粉絲可以公開瀏覽作品，挑選 Facebook／Instagram／LINE 用途、調整裁切、加上自己的文字，輸入下載密碼後下載個人化 PNG；兩位授權管理員可在後臺上傳、排序、發布作品與管理下載密碼。
+KUMA 工作室的熊大、兔兔原創照片網站。以「**系列**」為最上層管理單位（熊兔生命共同體、熊大寵妻系列、熊兔甜蜜日常…，數量不限）：每個系列有自己的封面、作品、編號、稱號、身份證、宣言、收藏卡與**獨立的粉絲下載密碼**，新系列只要在後臺新增即可，不需要改程式。原本的大頭貼收藏館完整保留。
+
+粉絲可以公開瀏覽作品，挑選 Facebook／Instagram／LINE 用途、調整裁切、加上自己的文字，輸入下載密碼後下載個人化 PNG；兩位授權管理員可在後臺上傳、排序、發布作品與管理下載密碼。
 
 - 前端：Vite＋React＋TypeScript，部署在 **GitHub Pages**
 - 後端：**Supabase**（Auth、Database＋RLS、Storage、Edge Functions），全部使用免費方案可用的功能
 - 不需要自架伺服器、不需要付費 API、粉絲不需要註冊
 
-> 相關文件：[每月更新操作手冊](docs/每月更新手冊.md)｜[部署與驗收清單](docs/部署與驗收清單.md)｜[最新測試報告](docs/測試報告.md)
+> 相關文件：[多系列管理操作說明](docs/多系列管理操作說明.md)｜[多系列測試報告](docs/多系列測試報告.md)｜[每月更新操作手冊](docs/每月更新手冊.md)｜[部署與驗收清單](docs/部署與驗收清單.md)｜[最新測試報告](docs/測試報告.md)
 
 ---
 
@@ -44,12 +46,31 @@ KUMA 工作室的熊大、兔兔原創照片大頭貼網站。粉絲可以公開
 
 > 平台預覽是「通用的大頭貼裁切示意」，不代表各平台官方的精確顯示方式；程式中沒有硬編任何官方尺寸規定。下載的一律是方形圖片，邊長沿用原圖實際裁切的像素（最大 2048px；加上文字時至少 1024px，讓文字清晰）。
 
-### 熊兔生命共同體限定收藏館（`網站網址/#/life`）
+### KUMA STUDIO 多系列（`網站網址/#/c/系列代稱`）
+
+首頁「KUMA STUDIO 原創系列」列出所有公開的系列（封面、名稱、介紹、作品數、標語）。每個系列：
+
+| 項目 | 說明 |
+| --- | --- |
+| 系列資料 | 名稱、英文名稱、網址代稱、封面、主視覺、介紹、主題標語、排序、狀態（草稿／公開／已下架）、下載開關、建立／更新日期 |
+| 作品 | 數量不限、每張照片一筆獨立作品；編號在不同系列可重複；稱號、名稱、介紹、宣言、排序、公開狀態都由管理員編輯 |
+| 大頭貼版（選用） | 同一場景另外構圖的方形大頭貼（例：熊大寵妻系列每組「劇情照＋配套大頭貼」）。劇情照用於身份證與收藏卡，大頭貼版用於製作大頭貼；兩張都原封不動存在私有空間 |
+| 身份證 | 可依系列啟用／關閉；標題與宣言名稱由系列設定（例：熊兔生命共同體身份證、熊大寵妻身份證） |
+| 宣言製作器 | 每個系列有自己的預設宣言清單；粉絲可選用、自訂、修改、刪除、調整大小／顏色／位置、即時預覽、恢復原始圖片 |
+| 收藏卡 | 可依系列啟用／關閉；6 種主題配色（森林、甜蜜、暖陽、晴空、星夜、經典），版面與 KUMA STUDIO 標示一致；單張、多選、整套 ZIP |
+| 專屬下載密碼 | 每個系列一組：設定、修改、重新產生（伺服器產生、只顯示一次）、停用、重新啟用、立即撤銷；只存 bcrypt 雜湊；後端只用該系列的密碼驗證，授權只能下載該系列 |
+| 管理紀錄 | 兩位管理員對系列、作品、密碼的操作（不含密碼內容，不能修改或刪除） |
+| 安全刪除 | 刪除系列前選擇「作品移到其他系列」或「一起刪除」，並輸入系列名稱確認 |
+
+操作方式見 [多系列管理操作說明](docs/多系列管理操作說明.md)。
+
+### 熊兔生命共同體（第一系列，`網站網址/#/c/one-heart-one-life`，舊網址 `#/life` 仍可用）
 
 獨立的主題系列「KUMA 熊兔生命共同體｜ONE HEART, ONE LIFE」：十款獨立作品，每款有自己的原始照片、身份證、宣言大頭貼與收藏卡（單張／多選／十張 ZIP），有自己的專屬粉絲下載密碼（與原本收藏館的密碼互不通用），沿用兩位管理員。資料表（`collections`、`collection_works`）與原本的 `images` 完全分開。操作方式見 [生命共同體操作說明](docs/生命共同體操作說明.md)。
 
 ### 管理後臺（`網站網址/#/admin`）
 
+- **系列管理中心**（登入後首頁）：所有系列的作品數、公開狀態、密碼是否設定、下載是否開放、近 48 小時密碼驗證次數；新增系列、排序、進入各系列管理
 - 兩位管理員以各自的 Supabase Auth 帳號登入，權限相同
 - 作品：多張上傳（存成草稿）→ 編輯名稱／分類／描述／標籤／日期 → 上下調整排序 → 勾選後一鍵「發布」（可同時更新最新更新日期）
 - 無字版：單張上傳／替換／移除，或依檔名批次上傳（例如 `01_received_無字.png` 對應作品「received」）；無字版原圖同樣存放在私有 bucket，下載需要密碼
@@ -121,7 +142,10 @@ KUMA 工作室的熊大、兔兔原創照片大頭貼網站。粉絲可以公開
 
 ```
 ├─ src/                         前端（React＋TypeScript）
-│  ├─ pages/Home.tsx            粉絲首頁
+│  ├─ pages/Home.tsx            粉絲首頁（KUMA STUDIO 系列清單＋原本大頭貼收藏館）
+│  ├─ pages/CollectionHome.tsx  系列頁（#/c/:slug）；CollectionWorkPage.tsx 單一作品頁
+│  ├─ components/CollectionCard 身份證、收藏卡、系列大頭貼編輯器
+│  ├─ pages/admin/AdminCollections.tsx 系列管理中心；AdminCollection.tsx 單一系列管理；AdminLogs.tsx 管理紀錄
 │  ├─ components/AvatarEditor   大頭貼＋文字編輯器
 │  ├─ components/DownloadAuth   下載密碼視窗
 │  ├─ pages/admin/              管理後臺（登入、作品、分類、設定、設定密碼）
@@ -160,7 +184,7 @@ KUMA 工作室的熊大、兔兔原創照片大頭貼網站。粉絲可以公開
 
 > 已經部署過的專案，之後程式更新若新增了 migration 檔，只要在 SQL Editor 執行**新的那幾個檔案**即可；這些檔案都可以重複執行。
 3. 檢查：
-   - **Table Editor** 出現 `admins`、`categories`（7 個預設分類）、`images`、`site_settings`、`collections`（1 個系列）、`collection_works`（10 款待上傳作品）
+   - **Table Editor** 出現 `admins`、`categories`（7 個預設分類）、`images`、`site_settings`、`collections`（1 個系列）、`collection_works`（10 款待上傳作品）、`admin_audit_log`（管理紀錄）
    - **Storage** 出現 `previews`（Public）與 `originals`（**不是** Public）
 
 ### 3. 關閉公開註冊
@@ -267,10 +291,11 @@ npm run dev                    # http://localhost:5173
 | --- | --- | --- |
 | `npm test` | 裁切數學、檔名、ZIP 分批、保護區域、批次對應單元測試 | — |
 | `npm run typecheck` | TypeScript 型別檢查 | — |
-| `npm run test:db` | 在本機 PostgreSQL 套用 migration，測試 RLS、Storage 政策、雙管理員、撤銷、密碼雜湊與鎖定、生命共同體系列與專屬密碼（158 項） | PostgreSQL 15+ |
-| `npm run test:functions` | Edge Function 測試（37 項） | 安裝時自動下載 Deno |
+| `npm run test:db` | 在本機 PostgreSQL 套用 migration，測試 RLS、Storage 政策、雙管理員、撤銷、密碼雜湊與鎖定、生命共同體系列與專屬密碼、多系列獨立密碼、停用／撤銷、管理紀錄、安全刪除（238 項） | PostgreSQL 15+ |
+| `npm run test:functions` | Edge Function 測試（44 項） | 安裝時自動下載 Deno |
 | `npm run test:e2e` | 瀏覽器端到端驗收（80 項，含截圖） | PostgreSQL、Playwright Chromium，作品放在 `tests/e2e/private-artworks/`（不提交） |
 | `npm run test:e2e:life` | 生命共同體端到端驗收（80 項，含截圖） | 同上，十張原始照片放在 `tests/e2e/private-artworks/life/`（不提交） |
+| `npm run test:e2e:studio` | KUMA STUDIO 多系列端到端驗收（三個系列、獨立密碼、手機＋桌機，含截圖） | 同上，熊大寵妻系列照片放在 `tests/e2e/private-artworks/wife/`（不提交）；另外兩個系列使用程式產生的純色測試圖 |
 | `npm run check:secrets` | 掃描是否有私密金鑰要被提交 | git |
 
 端到端測試使用 `tests/e2e/mock-supabase.mjs`：一個「Supabase 相容測試伺服器」，把請求轉成在本機 PostgreSQL 以 anon／authenticated／service_role 身分執行的 SQL（正式 migration 的 RLS 實際生效），並直接執行正式的 Edge Function 程式。它不是真正的 Supabase，因此正式環境仍需依 [部署與驗收清單](docs/部署與驗收清單.md) 實測一次。
