@@ -415,6 +415,17 @@ select t.check('大頭貼版欄位必須完整', t.try_as('authenticated', :A, f
 select t.check('訪客可讀大頭貼版預覽', t.try_as('anon', null, format('select avatar_preview_path from public.collection_works where collection_id = %L and work_number = 2', :'wife_id')), 'collections/w/a1.webp');
 select t.check('訪客不能讀大頭貼版原圖路徑', t.try_as('anon', null, 'select avatar_original_path from public.collection_works limit 1'), 'ERROR:42501');
 
+-- 額外大頭貼（每款作品可有多張）
+select t.check('可替已公開作品加上額外大頭貼', t.do_as('authenticated', :A, format($q$insert into public.collection_work_avatars (work_id, sort_order, preview_path, original_path, mime_type, file_size, width, height) select id, 10, 'collections/w/e2.webp', 'collections/w/e2.jpg', 'image/jpeg', 40, 1920, 1920 from public.collection_works where collection_id = %L and work_number = 2 returning 1$q$, :'wife_id')), '1');
+select t.check('可替草稿作品加上額外大頭貼', t.do_as('authenticated', :B, format($q$insert into public.collection_work_avatars (work_id, sort_order, preview_path, original_path, mime_type, file_size, width, height) select id, 10, 'collections/w/e1.webp', 'collections/w/e1.jpg', 'image/jpeg', 40, 1920, 1920 from public.collection_works where collection_id = %L and work_number = 1 returning 1$q$, :'wife_id')), '1');
+select t.check('額外大頭貼格式受限制', t.try_as('authenticated', :A, format($q$insert into public.collection_work_avatars (work_id, preview_path, original_path, mime_type, file_size, width, height) select id, 'x', 'y', 'image/gif', 1, 1, 1 from public.collection_works where collection_id = %L and work_number = 2 returning 1$q$, :'wife_id')), 'ERROR:23514');
+select t.check('C 不能新增額外大頭貼', t.try_as('authenticated', :C, format($q$insert into public.collection_work_avatars (work_id, preview_path, original_path, mime_type, file_size, width, height) select id, 'x', 'y', 'image/png', 1, 1, 1 from public.collection_works where collection_id = %L and work_number = 2 returning 1$q$, :'wife_id')), 'ERROR:42501');
+select t.check('訪客可讀已公開作品的額外大頭貼預覽', t.try_as('anon', null, $q$select string_agg(preview_path, ',') from public.collection_work_avatars$q$), 'collections/w/e2.webp');
+select t.check('訪客不能讀額外大頭貼原圖路徑', t.try_as('anon', null, 'select original_path from public.collection_work_avatars limit 1'), 'ERROR:42501');
+select t.check('訪客不能新增額外大頭貼', t.try_as('anon', null, $q$insert into public.collection_work_avatars (work_id, preview_path, original_path, mime_type, file_size, width, height) select id, 'x', 'y', 'image/png', 1, 1, 1 from public.collection_works limit 1 returning 1$q$), 'ERROR:42501');
+select t.check('C 也只看得到已公開作品的額外大頭貼', t.try_as('authenticated', :C, 'select count(*)::text from public.collection_work_avatars'), '1');
+select t.check('新增額外大頭貼有管理紀錄', (select count(*)::text from public.admin_audit_log where action = 'work.avatar_add' and collection_id = :'wife_id'::uuid), '2');
+
 -- 安全刪除系列
 select t.check('名稱不符時不能刪除', t.try_as('authenticated', :A, format('select public.delete_collection(%L, %L, null, %L)::text', :'daily_id', 'delete', '錯的名字')), 'ERROR:22023');
 select t.check('C 不能刪除系列', t.try_as('authenticated', :C, format('select public.delete_collection(%L, %L, null, %L)::text', :'daily_id', 'delete', '熊兔甜蜜日常')), 'ERROR:42501');
@@ -423,7 +434,8 @@ select t.check('刪除甜蜜日常並把作品移到寵妻系列', t.do_as('auth
 select t.check('移入的作品編號自動接在後面（不與 No.001 衝突）', (select string_agg(work_number::text || ':' || nickname || ':' || is_published::text, ',' order by work_number) from public.collection_works where collection_id = :'wife_id'::uuid), '1:專屬寵妻執行者:false,2:鞋帶守護者:true,3:甜蜜早餐員:false');
 select t.check('被刪除系列的密碼一併刪除', (select count(*)::text from private.collection_download_secret where collection_id = :'daily_id'::uuid), '0');
 select t.check('刪除有管理紀錄', (select detail->>'mode' from public.admin_audit_log where action = 'collection.delete' and collection_id = :'daily_id'::uuid), 'move');
-select t.check('連同作品刪除會回傳要清除的檔案', t.do_as('authenticated', :B, format('select jsonb_array_length(public.delete_collection(%L, %L, null, %L)->%L)::text', :'wife_id', 'delete', '熊大寵妻系列', 'originals')), '4');
+select t.check('連同作品刪除會回傳要清除的檔案', t.do_as('authenticated', :B, format('select jsonb_array_length(public.delete_collection(%L, %L, null, %L)->%L)::text', :'wife_id', 'delete', '熊大寵妻系列', 'originals')), '6');
+select t.check('作品刪除時額外大頭貼一併刪除', (select count(*)::text from public.collection_work_avatars), '0');
 select t.check('連同作品刪除後作品不存在', (select count(*)::text from public.collection_works where collection_id = :'wife_id'::uuid), '0');
 select t.check('生命共同體不受影響', (select count(*)::text from public.collections where slug = 'one-heart-one-life'), '1');
 

@@ -17,7 +17,7 @@ import { handle } from "../../supabase/functions/download/handler.ts";
 
 const JWT_SECRET = "e2e-test-jwt-secret-not-for-production-0123456789";
 const TOKEN_SECRET = "e2e-download-token-secret-not-for-production-0123456789";
-const TABLES = new Set(["images", "categories", "site_settings", "admins", "image_download_stats", "collections", "collection_works", "admin_audit_log"]);
+const TABLES = new Set(["images", "categories", "site_settings", "admins", "image_download_stats", "collections", "collection_works", "collection_work_avatars", "admin_audit_log"]);
 const RPCS = new Set([
   "is_admin", "set_download_password", "download_password_status", "set_collection_download_password", "collection_download_password_status",
   "regenerate_collection_download_password", "set_collection_download_password_enabled", "revoke_collection_download_password",
@@ -395,6 +395,12 @@ export function createMockSupabase({ database, storageDir, users, port }) {
         ),
       );
       return r.rows;
+    },
+    async getWorkAvatar(avatarId) {
+      const r = await asRole({ role: "service_role" }, (c) =>
+        c.query("select id::text, work_id::text, original_path, mime_type, file_size::int, sort_order from public.collection_work_avatars where id::text = $1", [avatarId]),
+      );
+      return r.rows[0] ?? null;
     },
     async signUrls(paths, expiresIn) {
       const exp = Math.floor(Date.now() / 1000) + expiresIn;

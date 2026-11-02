@@ -10,6 +10,8 @@ import {
   getCollection,
   getCollectionPasswordStatus,
   getLifeCollection,
+  addExtraAvatar,
+  removeExtraAvatar,
   removeWorkAvatar,
   setWorkAvatar,
   listAuditLog,
@@ -112,7 +114,11 @@ export default function AdminCollection() {
     }
   }
 
-  const replaceWork = (w: AdminCollectionWork) => setWorks((prev) => prev.map((x) => (x.id === w.id ? w : x)));
+  // 更新後的作品資料不含額外大頭貼，沿用畫面上已有的清單
+  const replaceWork = (w: AdminCollectionWork) =>
+    setWorks((prev) => prev.map((x) => (x.id === w.id ? { ...w, extra_avatars: w.extra_avatars ?? x.extra_avatars } : x)));
+  const extraRef = useRef<HTMLInputElement>(null);
+  const extraTarget = useRef<AdminCollectionWork | null>(null);
   const withPhoto = works.filter((w) => w.preview_path);
   const pending = works.filter((w) => !w.preview_path);
   const published = works.filter((w) => w.is_published);
@@ -169,7 +175,7 @@ export default function AdminCollection() {
           current = [...current, work];
         }
         const updated = item.kind === "avatar" ? await setWorkAvatar(work, item.file) : await setWorkPhoto(work, item.file);
-        current = current.map((w) => (w.id === updated.id ? updated : w));
+        current = current.map((w) => (w.id === updated.id ? { ...updated, extra_avatars: w.extra_avatars } : w));
         set({ status: "done" });
         ok++;
       } catch (e) {
@@ -201,6 +207,42 @@ export default function AdminCollection() {
     await run(async () => {
       replaceWork(kind === "avatar" ? await setWorkAvatar(w, file) : await setWorkPhoto(w, file));
       flash(`已上傳 ${formatNo(w.work_number)} 的${label}。`);
+    });
+  }
+
+  // ---------- 額外大頭貼（同一款作品的第 2 張以後；可一次選多張） ----------
+  function pickExtra(w: AdminCollectionWork) {
+    extraTarget.current = w;
+    extraRef.current?.click();
+  }
+
+  async function onExtra(files: FileList | null) {
+    const w = extraTarget.current;
+    const list = files ? [...files] : [];
+    if (extraRef.current) extraRef.current.value = "";
+    if (!w || list.length === 0) return;
+    for (const f of list) {
+      const invalid = validateFile(f);
+      if (invalid) return setError(invalid);
+    }
+    await run(async () => {
+      let work = w;
+      for (const f of list) {
+        const added = await addExtraAvatar(work, f);
+        work = { ...work, extra_avatars: [...(work.extra_avatars ?? []), added] };
+        replaceWork(work);
+      }
+      flash(`已替 ${formatNo(w.work_number)} 新增 ${list.length} 張大頭貼。粉絲製作大頭貼時可以切換款式。`);
+    });
+  }
+
+  async function removeExtra(w: AdminCollectionWork, avatarId: string, n: number) {
+    const a = w.extra_avatars?.find((x) => x.id === avatarId);
+    if (!a || !window.confirm(`要移除 ${formatNo(w.work_number)} 的大頭貼 ${n} 嗎？原圖會一併刪除。`)) return;
+    await run(async () => {
+      await removeExtraAvatar(a);
+      replaceWork({ ...w, extra_avatars: (w.extra_avatars ?? []).filter((x) => x.id !== avatarId) });
+      flash(`已移除 ${formatNo(w.work_number)} 的大頭貼 ${n}。`);
     });
   }
 
@@ -345,6 +387,7 @@ export default function AdminCollection() {
           </>
         )}
         <input ref={singleRef} type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={(e) => onSingle(e.target.files)} data-testid="life-single-input" />
+        <input ref={extraRef} type="file" accept="image/png,image/jpeg,image/webp" multiple hidden onChange={(e) => onExtra(e.target.files)} data-testid="extra-avatar-input" />
       </section>
 
       <section className="stack">
@@ -383,7 +426,23 @@ export default function AdminCollection() {
                   {!w.is_downloadable && <span className="badge gray">不可下載</span>}
                   {w.protect_zones.length === 0 && w.preview_path && <span className="badge warn">未設保護區域</span>}
                   {w.avatar_preview_path && <span className="badge pink" data-testid="has-avatar">有大頭貼版</span>}
+                  {(w.extra_avatars?.length ?? 0) > 0 && (
+                    <span className="badge pink" data-testid="extra-count">共 {(w.avatar_preview_path ? 1 : 0) + w.extra_avatars!.length} 款大頭貼</span>
+                  )}
                 </div>
+                {(w.extra_avatars?.length ?? 0) > 0 && (
+                  <div className="extra-avatars" data-testid="extra-avatars">
+                    {w.extra_avatars!.map((a, i) => {
+                      const n = (w.avatar_preview_path ? 2 : 1) + i;
+                      return (
+                        <span key={a.id} className="extra-avatar">
+                          <img src={adminPreviewUrl(a.preview_path)} alt={`大頭貼 ${n}`} loading="lazy" />
+                          <button type="button" className="extra-avatar-remove" disabled={busy} aria-label={`移除大頭貼 ${n}`} onClick={() => removeExtra(w, a.id, n)}>×</button>
+                        </span>
+                      );
+                    })}
+                  </div>
+                )}
                 <div className="tiny muted">
                   {w.title || "（未填作品名稱）"}｜宣言：{w.manifesto || "（未填）"}
                 </div>
@@ -410,6 +469,9 @@ export default function AdminCollection() {
                     移除大頭貼版
                   </button>
                 )}
+                <button className="btn small ghost" onClick={() => pickExtra(w)} disabled={busy} data-testid="extra-avatar-add">
+                  ＋ 其他款大頭貼
+                </button>
                 {w.preview_path && (
                   <>
                     <button className="btn small ghost" onClick={() => setZonesFor(w)}>保護區域</button>

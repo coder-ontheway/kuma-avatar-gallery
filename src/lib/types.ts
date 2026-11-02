@@ -131,6 +131,21 @@ export interface CollectionWork {
   avatar_file_size: number | null;
   avatar_width: number | null;
   avatar_height: number | null;
+  /** 額外大頭貼（第 2 張以後，粉絲可在大頭貼編輯器切換） */
+  extra_avatars?: WorkAvatar[];
+}
+
+/** 作品的額外大頭貼（collection_work_avatars）；原圖路徑只有管理員看得到 */
+export interface WorkAvatar {
+  id: string;
+  work_id: string;
+  sort_order: number;
+  preview_path: string;
+  mime_type: string;
+  file_size: number;
+  width: number;
+  height: number;
+  original_path?: string;
 }
 
 export interface AdminCollectionWork extends CollectionWork {

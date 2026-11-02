@@ -208,27 +208,60 @@ export function CollectionAvatarEditor({
   onClose: () => void;
   previewOnly?: boolean;
 }) {
-  // 有大頭貼版時用大頭貼版（另外構圖的方形照片）；保護區域是依完整照片標的，大頭貼版不套用
-  const useAvatar = Boolean(work.avatar_preview_path && work.avatar_width && work.avatar_height);
+  // 大頭貼款式：有大頭貼版時第 1 張是大頭貼版（另外構圖的方形照片），沒有時用完整照片；之後接額外大頭貼
+  const choices = useMemo(() => {
+    const first = work.avatar_preview_path && work.avatar_width && work.avatar_height
+      ? { key: "avatar", variant: "avatar" as const, avatarId: undefined, preview_path: work.avatar_preview_path, mime_type: work.avatar_mime_type ?? "image/png", width: work.avatar_width, height: work.avatar_height, zones: [] }
+      : { key: "photo", variant: "original" as const, avatarId: undefined, preview_path: work.preview_path!, mime_type: work.mime_type ?? "image/jpeg", width: work.width ?? 1, height: work.height ?? 1, zones: work.protect_zones };
+    const extras = (work.extra_avatars ?? []).map((a) => ({
+      key: a.id, variant: "avatar" as const, avatarId: a.id as string | undefined, preview_path: a.preview_path, mime_type: a.mime_type, width: a.width, height: a.height, zones: [],
+    }));
+    return [first, ...extras];
+  }, [work]);
+  const [choiceKey, setChoiceKey] = useState(choices[0].key);
+  const choice = choices.find((c) => c.key === choiceKey) ?? choices[0];
+  // 保護區域是依完整照片標的，大頭貼版不套用
   const life = useMemo<LifeOptions>(
     () => ({
-      zones: useAvatar ? [] : work.protect_zones,
+      zones: choice.zones,
       presets: [...new Set([work.manifesto, ...collection.manifestos].filter(Boolean))],
       defaultText: work.manifesto || collection.manifestos[0] || "",
     }),
-    [work, collection, useAvatar],
+    [work, collection, choice],
   );
+  const picker = choices.length > 1 ? (
+    <div className="avatar-choices" role="group" aria-label="選擇大頭貼款式" data-testid="avatar-choices">
+      <span className="tiny muted">選擇大頭貼款式</span>
+      <div className="avatar-choice-row">
+        {choices.map((c, i) => (
+          <button
+            key={c.key}
+            type="button"
+            className={`avatar-choice ${c.key === choice.key ? "active" : ""}`}
+            aria-pressed={c.key === choice.key}
+            aria-label={`大頭貼 ${i + 1}`}
+            onClick={() => setChoiceKey(c.key)}
+          >
+            <img src={previewUrl(c.preview_path)} alt="" loading="lazy" />
+            <span>大頭貼 {i + 1}</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  ) : null;
   return (
     <AvatarEditor
       image={{
         id: work.id,
         title: `${formatNo(work.work_number)} ${work.nickname}`,
-        preview_path: useAvatar ? work.avatar_preview_path! : work.preview_path!,
-        mime_type: (useAvatar ? work.avatar_mime_type : work.mime_type) ?? "image/jpeg",
-        width: (useAvatar ? work.avatar_width : work.width) ?? 1,
-        height: (useAvatar ? work.avatar_height : work.height) ?? 1,
+        preview_path: choice.preview_path,
+        mime_type: choice.mime_type,
+        width: choice.width,
+        height: choice.height,
       }}
-      collectionVariant={useAvatar ? "avatar" : "original"}
+      collectionVariant={choice.variant}
+      collectionAvatarId={choice.avatarId}
+      picker={picker}
       initialPlatform={platform}
       downloadsEnabled={downloadsEnabled}
       onClose={onClose}
@@ -237,7 +270,7 @@ export function CollectionAvatarEditor({
       collectionId={collection.id}
       collectionName={collection.name}
       life={life}
-      fileTitle={collectionAvatarTitle(collection, work)}
+      fileTitle={collectionAvatarTitle(collection, work) + (choice.key === choices[0].key ? "" : `_款式${choices.indexOf(choice) + 1}`)}
     />
   );
 }

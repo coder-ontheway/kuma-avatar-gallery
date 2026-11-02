@@ -538,3 +538,46 @@ Deno.test("多系列：大頭貼版原圖需要該系列密碼，且只回傳有
   assert(items[0].url.includes("c/w1/avatar.png"));
   assertEquals((await handle(post({ action: "sign", variant: "avatar", ids: [ID1], token: await getToken(deps) }), deps)).status, 400);
 });
+
+Deno.test("多系列：額外大頭貼需要該系列密碼，且必須屬於同一款已公開作品", async () => {
+  const EXTRA = "44444444-0000-4000-8000-000000000001";
+  const OTHER = "44444444-0000-4000-8000-000000000002";
+  const { deps } = makeDeps({
+    listCollectionWorks: (ids) =>
+      Promise.resolve([
+        work(W1, 1, { avatar_original_path: "c/w1/avatar.png", avatar_mime_type: "image/png", avatar_file_size: 500 }),
+        work(W2, 2, { is_published: false }),
+      ].filter((r) => !ids || ids.includes(r.id))),
+    getWorkAvatar: (id) =>
+      Promise.resolve(
+        id === EXTRA
+          ? { id, work_id: W1, original_path: "c/w1/extra-2.jpg", mime_type: "image/jpeg", file_size: 300, sort_order: 10 }
+          : id === OTHER
+          ? { id, work_id: W2, original_path: "c/w2/extra-2.jpg", mime_type: "image/jpeg", file_size: 300, sort_order: 10 }
+          : null,
+      ),
+  });
+  const token = await getLifeToken(deps);
+  const sign = (body: Record<string, unknown>) =>
+    handle(post({ action: "sign", token, source: "collection", variant: "avatar", purpose: "avatar", ...body }), deps);
+
+  const ok = await sign({ ids: [W1], avatar_id: EXTRA });
+  assertEquals(ok.status, 200);
+  const text = await ok.text();
+  const items = JSON.parse(text).items;
+  assertEquals(items.length, 1);
+  assert(items[0].url.includes("c/w1/extra-2.jpg"));
+  assertEquals(items[0].mime_type, "image/jpeg");
+  assert(!text.includes(EXTRA));
+
+  // 大頭貼屬於別款作品、作品未公開、或不存在 → 404
+  assertEquals((await sign({ ids: [W1], avatar_id: OTHER })).status, 404);
+  assertEquals((await sign({ ids: [W2], avatar_id: OTHER })).status, 404);
+  assertEquals((await sign({ ids: [W1], avatar_id: "44444444-0000-4000-8000-0000000000ff" })).status, 404);
+  // 格式錯誤、一次多款、非大頭貼版 → 400
+  assertEquals((await sign({ ids: [W1], avatar_id: "x" })).status, 400);
+  assertEquals((await sign({ ids: [W1, W2], avatar_id: EXTRA })).status, 400);
+  assertEquals((await handle(post({ action: "sign", token, source: "collection", ids: [W1], avatar_id: EXTRA }), deps)).status, 400);
+  // 沒有該系列的授權不能下載
+  assertEquals((await handle(post({ action: "sign", token: await getToken(deps), source: "collection", variant: "avatar", ids: [W1], avatar_id: EXTRA }), deps)).status, 401);
+});
