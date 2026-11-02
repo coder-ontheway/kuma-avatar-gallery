@@ -1,5 +1,5 @@
-// 熊兔生命共同體：收藏卡下載（單張、多選、全部 ZIP）。
-// 一律先通過下載密碼（Edge Function 驗證）取得私有原圖的限時網址，再在瀏覽器合成收藏卡。
+// KUMA STUDIO 系列：收藏卡下載（單張、多選、整個系列 ZIP）。
+// 一律先通過「該系列」的下載密碼（Edge Function 驗證）取得私有原圖的限時網址，再在瀏覽器合成收藏卡。
 import { zip } from "fflate";
 import { renderCardBlob, formatNo, type CardInfo } from "./card";
 import { DownloadError, fetchSigned, saveBlob, signCollection } from "./download";
@@ -15,15 +15,21 @@ export function cardInfo(collection: Collection, work: CollectionWork, manifesto
     manifesto: manifesto ?? work.manifesto,
     collectionName: collection.name,
     collectionNameEn: collection.name_en,
+    theme: collection.card_theme,
   };
 }
 
-export function cardFileName(work: Pick<CollectionWork, "work_number" | "nickname">): string {
-  return `KUMA_生命共同體_${formatNo(work.work_number)}_${safeName(work.nickname, 20)}_收藏卡.jpg`;
+/** 檔名中的系列簡稱（去掉 KUMA 字樣，例：「KUMA 熊兔生命共同體」→「熊兔生命共同體」） */
+export function seriesShortName(collection: Pick<Collection, "name">): string {
+  return safeName(collection.name.replace(/^KUMA\s*/i, ""), 16) || "系列";
 }
 
-export function lifeAvatarTitle(work: Pick<CollectionWork, "work_number" | "nickname">): string {
-  return `生命共同體_${formatNo(work.work_number)}_${work.nickname}`;
+export function cardFileName(collection: Pick<Collection, "name">, work: Pick<CollectionWork, "work_number" | "nickname">): string {
+  return `KUMA_${seriesShortName(collection)}_${formatNo(work.work_number)}_${safeName(work.nickname, 20)}_收藏卡.jpg`;
+}
+
+export function collectionAvatarTitle(collection: Pick<Collection, "name">, work: Pick<CollectionWork, "work_number" | "nickname">): string {
+  return `${seriesShortName(collection)}_${formatNo(work.work_number)}_${work.nickname}`;
 }
 
 export function loadImageFromBlob(blob: Blob): Promise<HTMLImageElement> {
@@ -53,7 +59,7 @@ export async function downloadCard(collection: Collection, work: CollectionWork,
   if (!item) throw new DownloadError("找不到可下載的作品。", "not_found", 404);
   const blob = await fetchSigned(item);
   const out = await renderFromOriginal(blob, cardInfo(collection, work, manifesto), work);
-  saveBlob(out, cardFileName(work));
+  saveBlob(out, cardFileName(collection, work));
 }
 
 export interface CardZipProgress {
@@ -83,7 +89,7 @@ export async function downloadCardsZip(
     try {
       const blob = await fetchSigned(it);
       const card = await renderFromOriginal(blob, cardInfo(collection, work), work);
-      entries[cardFileName(work)] = [new Uint8Array(await card.arrayBuffer()), { level: 0 }];
+      entries[cardFileName(collection, work)] = [new Uint8Array(await card.arrayBuffer()), { level: 0 }];
     } catch {
       failed.push(`${formatNo(work.work_number)} ${work.nickname}`);
     }
@@ -95,11 +101,12 @@ export async function downloadCardsZip(
   const data = await new Promise<Uint8Array>((resolve, reject) => zip(entries, (err, out) => (err ? reject(err) : resolve(out))));
   const stamp = new Date().toISOString().slice(0, 10).replace(/-/g, "");
   const label = ids === "all" ? "完整收藏卡" : `收藏卡${files}張`;
-  saveBlob(new Blob([data as BlobPart], { type: "application/zip" }), `KUMA_熊兔生命共同體_${label}_${stamp}.zip`);
+  saveBlob(new Blob([data as BlobPart], { type: "application/zip" }), `KUMA_${seriesShortName(collection)}_${label}_${stamp}.zip`);
   return { files, failed };
 }
 
 // ---- 粉絲的「我的收藏」（只存在這台裝置的瀏覽器，不需要帳號）----
+// 沿用原本的儲存鍵（作品 id 全站唯一，不同系列的收藏不會混在一起）
 const FAV_KEY = "kuma_life_favorites";
 
 export function loadFavorites(): Set<string> {

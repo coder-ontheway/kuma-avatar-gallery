@@ -5,8 +5,9 @@
 //                    purpose "avatar"／"original" 用於下載次數統計（ZIP 全部下載自動記為 "zip"）
 //                    source "collection" 代表「熊兔生命共同體」等主題系列作品（collection_works 表），
 //                    與原本收藏館（images 表）分開查詢，互不影響
-//   主題系列有自己的下載密碼：verify 時帶 collection（系列 id）就以該系列的專屬密碼驗證，
-//   發出的授權只能下載該系列；原本的密碼發出的授權不能下載系列作品，反之亦然。
+//   每個系列有自己的下載密碼：verify 時帶 collection（系列 id）就只以「該系列」的密碼驗證，
+//   發出的授權只能下載該系列（憑證內含系列 id，sign 時只回傳該系列的作品）；
+//   其他系列或原本收藏館的授權一律不能使用。一次下載多個系列時，必須分別驗證每個系列的密碼。
 import { hashClient, signToken, verifyToken } from "./token.ts";
 
 export const TOKEN_TTL_SECONDS = 15 * 60;
@@ -16,7 +17,7 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
 export interface VerifyResult {
   ok: boolean;
-  reason?: "wrong" | "locked" | "busy" | "not_configured";
+  reason?: "wrong" | "locked" | "busy" | "not_configured" | "disabled" | "not_available";
   version?: number;
   remaining?: number;
   retry_after?: number;
@@ -53,6 +54,10 @@ export interface CollectionWorkRow {
   original_path: string | null;
   mime_type: string | null;
   file_size: number | null;
+  /** 大頭貼版原圖（選用；有些系列每個場景另外提供方形大頭貼） */
+  avatar_original_path?: string | null;
+  avatar_mime_type?: string | null;
+  avatar_file_size?: number | null;
   sort_order: number;
   is_published: boolean;
   is_downloadable: boolean;
@@ -68,7 +73,8 @@ export interface Deps {
   listImages(ids: string[] | null): Promise<ImageRow[]>;
   listCollectionWorks?(ids: string[] | null): Promise<CollectionWorkRow[]>;
   verifyCollectionPassword?(collectionId: string, password: string, clientHash: string): Promise<VerifyResult>;
-  collectionDownloadState?(collectionId: string): Promise<{ version: number; configured: boolean }>;
+  /** enabled：系列已公開、系列開放下載、專屬密碼已設定且啟用（舊版資料庫沒有此欄位時視為 true） */
+  collectionDownloadState?(collectionId: string): Promise<{ version: number; configured: boolean; enabled?: boolean }>;
   signUrls(paths: string[], expiresIn: number): Promise<(string | null)[]>;
   recordDownloads?(ids: string[], kind: DownloadKind): Promise<void>;
   now?: () => number;
@@ -171,6 +177,10 @@ async function verify(req: Request, body: Record<string, unknown>, deps: Deps, c
         message: `密碼錯誤次數過多，請約 ${minutes} 分鐘後再試。`,
       }, cors);
     }
+    case "disabled":
+      return json(403, { error: "collection_download_disabled", message: "這個系列目前暫停下載，請留意粉專公告。" }, cors);
+    case "not_available":
+      return json(404, { error: "collection_not_available", message: "找不到這個系列，可能已下架。" }, cors);
     case "busy":
       return json(429, { error: "busy", retry_after: result.retry_after ?? 900, message: "目前嘗試次數過多，請稍後再試。" }, cors);
     case "not_configured":
@@ -210,6 +220,10 @@ async function sign(body: Record<string, unknown>, deps: Deps, cors: Record<stri
     if (!cs.configured || cs.version !== payload.v) {
       return json(401, { error: "token_invalid", message: "下載密碼已更新，請重新輸入下載密碼。" }, cors);
     }
+    // 系列被下架、關閉下載或停用密碼時，已發出的授權也立即不能再換下載網址
+    if (cs.enabled === false) {
+      return json(403, { error: "collection_download_disabled", message: "這個系列目前暫停下載，請留意粉專公告。" }, cors);
+    }
   } else {
     if (payload.c) {
       return json(401, { error: "token_invalid", message: "請輸入下載密碼。" }, cors);
@@ -220,7 +234,7 @@ async function sign(body: Record<string, unknown>, deps: Deps, cors: Record<stri
   }
 
   const variant = body.variant ?? "original";
-  if (variant !== "original" && variant !== "plain") {
+  if (variant !== "original" && variant !== "plain" && !(variant === "avatar" && isCollection)) {
     return json(400, { error: "bad_request", message: "未知的作品版本。" }, cors);
   }
 
@@ -286,22 +300,24 @@ async function signCollection(
   deps: Deps,
   cors: Record<string, string>,
 ) {
-  if (variant !== "original" || !deps.listCollectionWorks) {
+  if ((variant !== "original" && variant !== "avatar") || !deps.listCollectionWorks) {
     return json(400, { error: "bad_request", message: "未知的作品版本。" }, cors);
   }
+  const avatar = variant === "avatar";
   const rows = (await deps.listCollectionWorks(ids))
     .filter((r) => r.collection_id === collectionId && r.collection_public && r.is_published && r.is_downloadable && r.original_path && r.mime_type && r.file_size)
+    .filter((r) => !avatar || (r.avatar_original_path && r.avatar_mime_type && r.avatar_file_size))
     .sort((a, b) => a.sort_order - b.sort_order || a.work_number - b.work_number);
   if (rows.length === 0) {
     return json(404, { error: "not_found", message: "找不到可下載的作品。" }, cors);
   }
-  const urls = await deps.signUrls(rows.map((r) => r.original_path!), SIGNED_URL_TTL_SECONDS);
+  const urls = await deps.signUrls(rows.map((r) => (avatar ? r.avatar_original_path! : r.original_path!)), SIGNED_URL_TTL_SECONDS);
   const items = rows
     .map((r, i) => ({
       id: r.id,
-      title: `No.${pad3(r.work_number)}_${r.nickname}`,
-      mime_type: r.mime_type!,
-      file_size: r.file_size!,
+      title: `No.${pad3(r.work_number)}_${r.nickname}${avatar ? "_大頭貼" : ""}`,
+      mime_type: avatar ? r.avatar_mime_type! : r.mime_type!,
+      file_size: avatar ? r.avatar_file_size! : r.file_size!,
       url: urls[i],
     }))
     .filter((r) => typeof r.url === "string");

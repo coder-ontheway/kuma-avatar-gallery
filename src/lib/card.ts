@@ -1,8 +1,10 @@
-// 熊兔生命共同體收藏卡：以 canvas 合成成獨立圖片檔（1200 × 1800，2:3 直式）。
+// KUMA STUDIO 系列收藏卡：以 canvas 合成成獨立圖片檔（1200 × 1800，2:3 直式）。
+// 每個系列可選不同的主題配色（森林、甜蜜、暖陽、晴空、星夜、經典），版面與 KUMA STUDIO 品牌標示一致。
 // 照片在上、文字全部在照片下方，不會有任何文字壓在熊兔身上。
 // 網頁預覽用公開預覽圖繪製；下載時以私有原圖（通過下載密碼後取得）重新繪製同一個版面。
 
 import { zonesBounds, type ProtectZone } from "./protect";
+import type { CardTheme } from "./types";
 
 export const CARD_W = 1200;
 export const CARD_H = 1800;
@@ -15,20 +17,36 @@ export interface CardInfo {
   manifesto: string;
   collectionName: string;
   collectionNameEn: string;
+  theme?: CardTheme;
 }
 
 const SERIF = '"Noto Serif TC", "Songti TC", "PMingLiU", "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", serif';
 const SANS = '"Noto Sans TC", "PingFang TC", "Microsoft JhengHei", "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif';
 
-const C = {
-  paper1: "#fffaf2",
-  paper2: "#f6e9d6",
-  gold: "#b8893e",
-  goldSoft: "#d9b878",
-  brown: "#5a3a26",
-  brownSoft: "#8a6a52",
-  rose: "#d9647a",
+interface Palette {
+  paper1: string;
+  paper2: string;
+  gold: string;
+  goldSoft: string;
+  brown: string;
+  brownSoft: string;
+  rose: string;
+  ornament: "leaf" | "heart" | "star" | "dot";
+}
+
+/** 收藏卡主題配色。所有主題共用同一個版面、同樣的 KUMA STUDIO 標示 */
+export const CARD_THEMES: Record<CardTheme, Palette & { label: string; hint: string }> = {
+  forest: { label: "森林共生", hint: "森林、愛心、自然", paper1: "#fffaf2", paper2: "#f6e9d6", gold: "#b8893e", goldSoft: "#d9b878", brown: "#5a3a26", brownSoft: "#8a6a52", rose: "#d9647a", ornament: "leaf" },
+  sweet: { label: "甜蜜寵愛", hint: "甜蜜、溫暖、可愛", paper1: "#fff6f7", paper2: "#fde3e8", gold: "#d0708a", goldSoft: "#efb3c2", brown: "#6a3a44", brownSoft: "#9a6670", rose: "#e0587a", ornament: "heart" },
+  sunny: { label: "暖陽日常", hint: "日常、陽光、輕鬆", paper1: "#fffbef", paper2: "#fbecc5", gold: "#c98a1e", goldSoft: "#ecc76f", brown: "#5c4020", brownSoft: "#8d6b45", rose: "#e07a3f", ornament: "dot" },
+  sky: { label: "晴空旅行", hint: "旅行、約會、藍天", paper1: "#f6fbff", paper2: "#dcecf8", gold: "#4f86b8", goldSoft: "#9cc3e3", brown: "#2f4a63", brownSoft: "#5f7d96", rose: "#e06a86", ornament: "dot" },
+  night: { label: "星夜守護", hint: "星空、夢想、浪漫", paper1: "#f7f4fb", paper2: "#e3dcf0", gold: "#8a6cc0", goldSoft: "#c2b0e2", brown: "#3a2f55", brownSoft: "#6a5f88", rose: "#d9647a", ornament: "star" },
+  classic: { label: "經典奶茶", hint: "簡約、經典", paper1: "#fffdf8", paper2: "#f1ebe1", gold: "#8a6a52", goldSoft: "#c9b39b", brown: "#4a3426", brownSoft: "#7a604e", rose: "#c45a6a", ornament: "leaf" },
 };
+
+function palette(theme?: CardTheme): Palette {
+  return CARD_THEMES[theme ?? "forest"] ?? CARD_THEMES.forest;
+}
 
 export function formatNo(n: number): string {
   return `No.${String(n).padStart(3, "0")}`;
@@ -90,7 +108,37 @@ function heart(ctx: Ctx, cx: number, cy: number, s: number, color: string) {
   ctx.restore();
 }
 
-function leaf(ctx: Ctx, x: number, y: number, s: number, angle: number) {
+function star(ctx: Ctx, cx: number, cy: number, r: number, color: string) {
+  ctx.save();
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  for (let i = 0; i < 10; i++) {
+    const a = -Math.PI / 2 + (i * Math.PI) / 5;
+    const rr = i % 2 === 0 ? r : r * 0.45;
+    ctx.lineTo(cx + Math.cos(a) * rr, cy + Math.sin(a) * rr);
+  }
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+}
+
+/** 編號兩側的裝飾（依主題） */
+function ornament(ctx: Ctx, C: Palette, x: number, y: number, side: -1 | 1) {
+  if (C.ornament === "leaf") return leaf(ctx, C, x, y, 60, side < 0 ? Math.PI : 0);
+  const cx = x + side * 30;
+  if (C.ornament === "heart") return heart(ctx, cx, y + 6, 26, C.goldSoft);
+  if (C.ornament === "star") return star(ctx, cx, y, 22, C.goldSoft);
+  ctx.save();
+  ctx.fillStyle = C.goldSoft;
+  for (const [dx, r] of [[0, 10], [side * 26, 6], [side * 44, 4]] as const) {
+    ctx.beginPath();
+    ctx.arc(cx + dx, y, r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+function leaf(ctx: Ctx, C: Palette, x: number, y: number, s: number, angle: number) {
   ctx.save();
   ctx.translate(x, y);
   ctx.rotate(angle);
@@ -118,6 +166,7 @@ export async function ensureCardFonts(info: CardInfo): Promise<void> {
 export function drawCard(ctx: Ctx, photo: CanvasImageSource, pw: number, ph: number, info: CardInfo, zones: ProtectZone[]) {
   const W = CARD_W;
   const H = CARD_H;
+  const C = palette(info.theme);
   ctx.save();
   // 紙張底色
   const g = ctx.createLinearGradient(0, 0, 0, H);
@@ -167,8 +216,8 @@ export function drawCard(ctx: Ctx, photo: CanvasImageSource, pw: number, ph: num
 
   // 編號與稱號
   let y = py + P + 92;
-  leaf(ctx, W / 2 - 190, y, 60, Math.PI);
-  leaf(ctx, W / 2 + 190, y, 60, 0);
+  ornament(ctx, C, W / 2 - 190, y, -1);
+  ornament(ctx, C, W / 2 + 190, y, 1);
   ctx.fillStyle = C.gold;
   ctx.font = `700 64px ${SERIF}`;
   ctx.fillText(formatNo(info.workNumber), W / 2, y);
@@ -214,7 +263,7 @@ export function drawCard(ctx: Ctx, photo: CanvasImageSource, pw: number, ph: num
   ctx.fillStyle = C.gold;
   ctx.font = `700 24px ${SANS}`;
   if ("letterSpacing" in ctx) (ctx as Ctx & { letterSpacing: string }).letterSpacing = "6px";
-  ctx.fillText(info.collectionNameEn || "ONE HEART, ONE LIFE", W / 2, H - 112);
+  ctx.fillText(info.collectionNameEn || "KUMA STUDIO COLLECTION", W / 2, H - 112);
   if ("letterSpacing" in ctx) (ctx as Ctx & { letterSpacing: string }).letterSpacing = "0px";
   ctx.fillStyle = C.brownSoft;
   ctx.font = `500 24px ${SANS}`;

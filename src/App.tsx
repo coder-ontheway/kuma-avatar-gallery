@@ -1,10 +1,13 @@
 import { useEffect } from "react";
-import { Navigate, Route, Routes, useNavigate } from "react-router-dom";
+import { Navigate, Route, Routes, useLocation, useNavigate, useParams } from "react-router-dom";
 import { authLinkType, isConfigured, supabase } from "./lib/supabase";
 import Home from "./pages/Home";
-import LifeHome from "./pages/LifeHome";
-import LifeWork from "./pages/LifeWork";
-import AdminLife from "./pages/admin/AdminLife";
+import CollectionHome from "./pages/CollectionHome";
+import CollectionWorkPage from "./pages/CollectionWorkPage";
+import AdminCollection, { AdminLifeRedirect } from "./pages/admin/AdminCollection";
+import AdminCollections from "./pages/admin/AdminCollections";
+import AdminLogs from "./pages/admin/AdminLogs";
+import { LIFE_SLUG } from "./lib/api";
 import SetupNotice from "./pages/SetupNotice";
 import AdminLogin from "./pages/admin/AdminLogin";
 import AdminLayout from "./pages/admin/AdminLayout";
@@ -33,13 +36,20 @@ export default function App() {
     <DownloadAuthProvider>
       <Routes>
         <Route path="/" element={<Home />} />
-        <Route path="/life" element={<LifeHome />} />
-        <Route path="/life/:no" element={<LifeWork />} />
+        <Route path="/c/:slug" element={<CollectionHome />} />
+        <Route path="/c/:slug/:no" element={<CollectionWorkPage />} />
+        {/* 舊網址（第一系列）繼續可用 */}
+        <Route path="/life" element={<LegacyLifeRedirect />} />
+        <Route path="/life/:no" element={<LegacyLifeRedirect />} />
         <Route path="/admin/login" element={<AdminLogin />} />
         <Route path="/admin/set-password" element={<SetPassword />} />
         <Route path="/admin" element={<AdminLayout />}>
-          <Route index element={<AdminImages />} />
-          <Route path="life" element={<AdminLife />} />
+          {/* 系列管理為後臺主要入口 */}
+          <Route index element={<AdminCollections />} />
+          <Route path="collections/:id" element={<AdminCollection />} />
+          <Route path="images" element={<AdminImages />} />
+          <Route path="logs" element={<AdminLogs />} />
+          <Route path="life" element={<AdminLifeRedirect />} />
           <Route path="categories" element={<AdminCategories />} />
           <Route path="settings" element={<AdminSettings />} />
         </Route>
@@ -47,4 +57,10 @@ export default function App() {
       </Routes>
     </DownloadAuthProvider>
   );
+}
+
+function LegacyLifeRedirect() {
+  const { no } = useParams();
+  const { search } = useLocation();
+  return <Navigate to={`/c/${LIFE_SLUG}${no ? `/${no}` : ""}${search}`} replace />;
 }

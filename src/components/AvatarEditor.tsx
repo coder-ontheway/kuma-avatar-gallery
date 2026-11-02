@@ -69,7 +69,7 @@ const LIFE_HINT: Record<Platform, string> = {
 
 const PLATFORMS = Object.keys(PLATFORM_LABEL) as Platform[];
 
-/** 生命共同體模式：各平台獨立裁切、保護區域、預設宣言 */
+/** 系列模式（KUMA STUDIO 各系列）：各平台獨立裁切、保護區域、該系列的預設宣言 */
 export interface LifeOptions {
   zones: ProtectZone[];
   presets: string[];
@@ -135,8 +135,12 @@ interface Props {
   previewOnly?: boolean;
   /** 作品來源（下載時使用）；預設為原本的收藏館 */
   source?: Source;
-  /** 主題系列 id（source 為 "collection" 時使用該系列的專屬下載密碼） */
+  /** 系列 id（source 為 "collection" 時使用該系列的專屬下載密碼） */
   collectionId?: string;
+  /** 系列名稱（密碼視窗顯示用） */
+  collectionName?: string;
+  /** 系列作品使用的原圖版本（有大頭貼版時為 "avatar"） */
+  collectionVariant?: "original" | "avatar";
   /** 熊兔生命共同體模式 */
   life?: LifeOptions;
   /** 下載檔名前綴（例如 No.001_熊兔共生體） */
@@ -145,7 +149,7 @@ interface Props {
 
 type DragState = { kind: "image" } | { kind: "text"; id: string; offX: number; offY: number } | null;
 
-export default function AvatarEditor({ image, initialPlatform, downloadsEnabled, onClose, previewOnly, source = "images", collectionId, life, fileTitle: fileTitleProp }: Props) {
+export default function AvatarEditor({ image, initialPlatform, downloadsEnabled, onClose, previewOnly, source = "images", collectionId, collectionName, collectionVariant = "original", life, fileTitle: fileTitleProp }: Props) {
   const { ensureAuth } = useDownloadAuth();
   const [platform, setPlatform] = useState<Platform>(initialPlatform);
   const [panel, setPanel] = useState<"photo" | "text">(life ? "text" : "photo");
@@ -463,14 +467,14 @@ export default function AvatarEditor({ image, initialPlatform, downloadsEnabled,
       return;
     }
     const scope = source === "collection" ? (collectionId ?? null) : null;
-    const ok = await ensureAuth(scope);
+    const ok = await ensureAuth(scope, collectionName);
     if (!ok) return;
     setBusy(kind);
     try {
-      const variant = usePlain ? "plain" : "original";
+      const variant = source === "collection" ? collectionVariant : usePlain ? "plain" : "original";
       const { blob } = await fetchOriginal(image.id, variant, kind, source, scope).catch(async (e) => {
         // 憑證失效（例如密碼剛更新）時重新要求輸入一次
-        if (e instanceof DownloadError && e.code === "token_invalid" && (await ensureAuth(scope))) {
+        if (e instanceof DownloadError && e.code === "token_invalid" && (await ensureAuth(scope, collectionName))) {
           return fetchOriginal(image.id, variant, kind, source, scope);
         }
         throw e;

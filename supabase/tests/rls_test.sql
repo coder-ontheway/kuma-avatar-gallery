@@ -294,4 +294,137 @@ select t.check('專屬密碼連續錯誤 5 次後鎖定', t.do_as('service_role'
 select t.check('鎖定也適用於原本的密碼（不能換一種密碼繞過）', t.do_as('service_role', null, format('select public.verify_download_password(%L, %L)->>%L', 'kuma-test-pass-2', :CLIENT9, 'reason')), 'locked');
 select t.check('系列刪除時專屬密碼一併刪除', (select confdeltype::text from pg_constraint where conrelid = 'private.collection_download_secret'::regclass and contype = 'f' and confrelid = 'public.collections'::regclass), 'c');
 
+
+do $$ begin raise notice '--- 12. KUMA STUDIO 多系列：三個系列、各自獨立密碼 ---'; end $$;
+-- 既有系列在升級後的狀態
+select t.check('既有公開系列升級為 status=published', (select status from public.collections where slug = 'one-heart-one-life'), 'published');
+select t.check('第一系列沿用原本的身份證名稱', (select id_card_title from public.collections where slug = 'one-heart-one-life'), '熊兔生命共同體身份證');
+select t.check('第一系列原有密碼雜湊保留（升級不影響粉絲密碼）', (select (password_hash is not null)::text from private.collection_download_secret s join public.collections c on c.id = s.collection_id where c.slug = 'one-heart-one-life'), 'true');
+
+-- 兩位管理員各自建立系列
+select t.check('A 可新增「熊大寵妻系列」（草稿）', t.do_as('authenticated', :A, $q$insert into public.collections (slug, name, name_en, card_theme, id_card_title, manifesto_label, manifestos, sort_order)
+  values ('pamper-wife', '熊大寵妻系列', 'PAMPER MY BUNNY', 'sweet', '熊大寵妻身份證', '寵妻宣言', array['熊大專屬寵妻員。', '兔兔最大，熊大負責執行。'], 20) returning status$q$), 'draft');
+select t.check('B 可新增「熊兔甜蜜日常」', t.do_as('authenticated', :B, $q$insert into public.collections (slug, name, name_en, status, card_theme, manifestos, sort_order)
+  values ('sweet-daily', '熊兔甜蜜日常', 'SWEET DAILY', 'published', 'sunny', array['今天也很甜。'], 30) returning is_published::text$q$), 'true');
+select t.check('C 不能新增系列', t.try_as('authenticated', :C, $q$insert into public.collections (slug, name) values ('c-hack', 'x') returning 1$q$), 'ERROR:42501');
+select id::text as wife_id from public.collections where slug = 'pamper-wife' \gset
+select id::text as daily_id from public.collections where slug = 'sweet-daily' \gset
+
+-- 不同系列可有相同作品編號
+select t.check('寵妻 No.001 可與生命共同體 No.001 並存', t.do_as('authenticated', :A, format($q$insert into public.collection_works (collection_id, work_number, nickname, preview_path, original_path, mime_type, file_size, width, height)
+  values (%L, 1, '專屬寵妻執行者', 'collections/w/p1.webp', 'collections/w/o1.jpg', 'image/jpeg', 100, 800, 800) returning work_number::text$q$, :'wife_id')), '1');
+select t.do_as('authenticated', :A, format($q$insert into public.collection_works (collection_id, work_number, nickname, preview_path, original_path, mime_type, file_size, width, height, is_published)
+  values (%L, 2, '鞋帶守護者', 'collections/w/p2.webp', 'collections/w/o2.jpg', 'image/jpeg', 100, 800, 800, true) returning 1$q$, :'wife_id'));
+select t.do_as('authenticated', :B, format($q$insert into public.collection_works (collection_id, work_number, nickname, preview_path, original_path, mime_type, file_size, width, height, is_published)
+  values (%L, 1, '甜蜜早餐員', 'collections/d/p1.webp', 'collections/d/o1.jpg', 'image/jpeg', 100, 800, 800, true) returning 1$q$, :'daily_id'));
+select t.check('同一系列內編號仍不可重複', t.try_as('authenticated', :A, format($q$insert into public.collection_works (collection_id, work_number, nickname) values (%L, 1, '重複') returning 1$q$, :'wife_id')), 'ERROR:23505');
+
+-- 草稿系列訪客看不到
+select t.check('草稿系列訪客看不到', t.try_as('anon', null, format('select count(*)::text from public.collections where id = %L', :'wife_id')), '0');
+select t.check('草稿系列的已公開作品訪客也看不到', t.try_as('anon', null, format('select count(*)::text from public.collection_works where collection_id = %L', :'wife_id')), '0');
+select t.check('公開系列訪客看得到', t.try_as('anon', null, format('select count(*)::text from public.collections where id = %L', :'daily_id')), '1');
+select t.check('A 可把寵妻系列設為公開', t.do_as('authenticated', :A, format($q$update public.collections set status = 'published' where id = %L returning is_published::text$q$, :'wife_id')), 'true');
+select t.check('只改 is_published=false 時狀態變成下架', t.do_as('authenticated', :A, format($q$update public.collections set is_published = false where id = %L returning status$q$, :'wife_id')), 'archived');
+select t.check('下架系列訪客看不到', t.try_as('anon', null, format('select count(*)::text from public.collections where id = %L', :'wife_id')), '0');
+select t.do_as('authenticated', :A, format($q$update public.collections set status = 'published' where id = %L returning 1$q$, :'wife_id'));
+select t.check('不合法的狀態被拒絕', t.try_as('authenticated', :A, format($q$update public.collections set status = 'deleted' where id = %L returning 1$q$, :'wife_id')), 'ERROR:23514');
+select t.check('不合法的收藏卡主題被拒絕', t.try_as('authenticated', :A, format($q$update public.collections set card_theme = 'neon' where id = %L returning 1$q$, :'wife_id')), 'ERROR:23514');
+
+-- 三個系列設定不同密碼（測試用密碼）
+\set CLIENT_M '''client-hash-multi-00000000001'''
+\set CLIENT_M2 '''client-hash-multi-00000000002'''
+select t.do_as('authenticated', :A, format('select public.set_collection_download_password(%L, %L)::text', :'life_id', 'test-life-pw-A'));
+select t.check('寵妻系列設定密碼（B 操作）', t.do_as('authenticated', :B, format('select public.set_collection_download_password(%L, %L)->>%L', :'wife_id', 'test-wife-pw-B', 'version')), '1');
+select t.check('甜蜜日常設定密碼（A 操作）', t.do_as('authenticated', :A, format('select public.set_collection_download_password(%L, %L)->>%L', :'daily_id', 'test-daily-pw-C', 'version')), '1');
+select t.check('A 系列密碼可通過 A 系列', t.do_as('service_role', null, format('select public.verify_collection_download_password(%L, %L, %L)->>%L', :'life_id', 'test-life-pw-A', :CLIENT_M, 'ok')), 'true');
+select t.check('A 系列密碼不能通過 B 系列', t.do_as('service_role', null, format('select public.verify_collection_download_password(%L, %L, %L)->>%L', :'wife_id', 'test-life-pw-A', :CLIENT_M, 'reason')), 'wrong');
+select t.check('B 系列密碼不能通過 C 系列', t.do_as('service_role', null, format('select public.verify_collection_download_password(%L, %L, %L)->>%L', :'daily_id', 'test-wife-pw-B', :CLIENT_M, 'reason')), 'wrong');
+select t.check('C 系列密碼不能通過 A 系列', t.do_as('service_role', null, format('select public.verify_collection_download_password(%L, %L, %L)->>%L', :'life_id', 'test-daily-pw-C', :CLIENT_M, 'reason')), 'wrong');
+select t.check('B 系列密碼通過 B 系列', t.do_as('service_role', null, format('select public.verify_collection_download_password(%L, %L, %L)->>%L', :'wife_id', 'test-wife-pw-B', :CLIENT_M, 'ok')), 'true');
+select t.check('系列密碼不能通過原本收藏館', t.do_as('service_role', null, format('select public.verify_download_password(%L, %L)->>%L', 'test-wife-pw-B', :CLIENT_M2, 'reason')), 'wrong');
+select t.check('驗證紀錄記下系列 id', (select count(*)::text from private.download_attempts where collection_id = :'wife_id'::uuid and success), '1');
+
+-- 修改 A 系列密碼不影響 B、C
+select (public.collection_download_state(:'wife_id')->>'version') as wife_v0, (public.collection_download_state(:'daily_id')->>'version') as daily_v0 \gset
+select t.do_as('authenticated', :B, format('select public.set_collection_download_password(%L, %L)::text', :'life_id', 'test-life-pw-A2'));
+select t.check('修改 A 後 B 版本不變', (public.collection_download_state(:'wife_id')->>'version'), :'wife_v0');
+select t.check('修改 A 後 C 版本不變', (public.collection_download_state(:'daily_id')->>'version'), :'daily_v0');
+select t.check('修改 A 後 B 密碼仍可用', t.do_as('service_role', null, format('select public.verify_collection_download_password(%L, %L, %L)->>%L', :'wife_id', 'test-wife-pw-B', :CLIENT_M2, 'ok')), 'true');
+select t.check('修改 A 後 A 舊密碼失效', t.do_as('service_role', null, format('select public.verify_collection_download_password(%L, %L, %L)->>%L', :'life_id', 'test-life-pw-A', :CLIENT_M2, 'reason')), 'wrong');
+
+-- 停用 A 系列密碼不影響 B、C
+select t.check('C 不能停用系列密碼', t.try_as('authenticated', :C, format('select public.set_collection_download_password_enabled(%L, false)::text', :'life_id')), 'ERROR:42501');
+select (public.collection_download_state(:'life_id')->>'version')::int as life_v_before \gset
+select t.check('A 可停用 A 系列密碼', t.do_as('authenticated', :A, format('select public.set_collection_download_password_enabled(%L, false)->>%L', :'life_id', 'is_enabled')), 'false');
+select t.check('停用時版本 +1（舊授權立即失效）', ((public.collection_download_state(:'life_id')->>'version')::int - :life_v_before)::text, '1');
+select t.check('停用後下載狀態 enabled=false', (public.collection_download_state(:'life_id')->>'enabled'), 'false');
+select t.check('停用後正確密碼也無法驗證', t.do_as('service_role', null, format('select public.verify_collection_download_password(%L, %L, %L)->>%L', :'life_id', 'test-life-pw-A2', :CLIENT_M2, 'reason')), 'disabled');
+select t.check('停用 A 不影響 B', (public.collection_download_state(:'wife_id')->>'enabled'), 'true');
+select t.check('停用 A 不影響 C', (public.collection_download_state(:'daily_id')->>'enabled'), 'true');
+select t.check('B 可重新啟用 A 系列密碼', t.do_as('authenticated', :B, format('select public.set_collection_download_password_enabled(%L, true)->>%L', :'life_id', 'is_enabled')), 'true');
+select t.check('重新啟用後密碼可用', t.do_as('service_role', null, format('select public.verify_collection_download_password(%L, %L, %L)->>%L', :'life_id', 'test-life-pw-A2', :CLIENT_M2, 'ok')), 'true');
+
+-- 系列下載開關
+select t.do_as('authenticated', :A, format('update public.collections set download_enabled = false where id = %L returning 1', :'daily_id'));
+select t.check('系列關閉下載後 enabled=false', (public.collection_download_state(:'daily_id')->>'enabled'), 'false');
+select t.check('系列關閉下載後無法驗證', t.do_as('service_role', null, format('select public.verify_collection_download_password(%L, %L, %L)->>%L', :'daily_id', 'test-daily-pw-C', :CLIENT_M2, 'reason')), 'disabled');
+select t.check('C 系列關閉下載不影響 B', (public.collection_download_state(:'wife_id')->>'enabled'), 'true');
+select t.do_as('authenticated', :A, format('update public.collections set download_enabled = true where id = %L returning 1', :'daily_id'));
+-- 草稿／下架系列不能驗證
+select t.do_as('authenticated', :A, format($q$update public.collections set status = 'draft' where id = %L returning 1$q$, :'daily_id'));
+select t.check('草稿系列無法驗證密碼', t.do_as('service_role', null, format('select public.verify_collection_download_password(%L, %L, %L)->>%L', :'daily_id', 'test-daily-pw-C', :CLIENT_M2, 'reason')), 'not_available');
+select t.check('草稿系列下載狀態 enabled=false', (public.collection_download_state(:'daily_id')->>'enabled'), 'false');
+select t.do_as('authenticated', :A, format($q$update public.collections set status = 'published' where id = %L returning 1$q$, :'daily_id'));
+
+-- 重新產生密碼
+select t.check('C 不能重新產生密碼', t.try_as('authenticated', :C, format('select public.regenerate_collection_download_password(%L)::text', :'wife_id')), 'ERROR:42501');
+select t.check('訪客不能重新產生密碼', t.try_as('anon', null, format('select public.regenerate_collection_download_password(%L)::text', :'wife_id')), 'ERROR:42501');
+select public.collection_download_state(:'wife_id')->>'version' as wife_v1 \gset
+select t.do_as('authenticated', :A, format('select set_config(%L, public.regenerate_collection_download_password(%L)->>%L, false)', 'kuma.test_pw', :'wife_id', 'password'));
+select t.check_like('重新產生的密碼格式 xxxx-xxxx-xxxx', current_setting('kuma.test_pw'), '____-____-____');
+select t.check('重新產生後版本 +1', ((public.collection_download_state(:'wife_id')->>'version')::int - :'wife_v1'::int)::text, '1');
+select t.check('重新產生的密碼可通過驗證', t.do_as('service_role', null, format('select public.verify_collection_download_password(%L, %L, %L)->>%L', :'wife_id', current_setting('kuma.test_pw'), :CLIENT_M2, 'ok')), 'true');
+select t.check('重新產生後舊密碼失效', t.do_as('service_role', null, format('select public.verify_collection_download_password(%L, %L, %L)->>%L', :'wife_id', 'test-wife-pw-B', :CLIENT_M2, 'reason')), 'wrong');
+select t.check('資料庫不存明文密碼', (select (password_hash like '$2%' and password_hash <> current_setting('kuma.test_pw'))::text from private.collection_download_secret where collection_id = :'wife_id'::uuid), 'true');
+
+-- 立即撤銷
+select public.collection_download_state(:'wife_id')->>'version' as wife_v2 \gset
+select t.check('C 不能撤銷密碼', t.try_as('authenticated', :C, format('select public.revoke_collection_download_password(%L)::text', :'wife_id')), 'ERROR:42501');
+select t.do_as('authenticated', :B, format('select public.revoke_collection_download_password(%L)::text', :'wife_id'));
+select t.check('撤銷後狀態為未設定', t.try_as('authenticated', :A, format('select public.collection_download_password_status(%L)->>%L', :'wife_id', 'configured')), 'false');
+select t.check('撤銷後版本仍增加（舊授權不會復活）', ((public.collection_download_state(:'wife_id')->>'version')::int - :'wife_v2'::int)::text, '1');
+select t.check('撤銷後無法驗證', t.do_as('service_role', null, format('select public.verify_collection_download_password(%L, %L, %L)->>%L', :'wife_id', current_setting('kuma.test_pw'), :CLIENT_M2, 'reason')), 'not_configured');
+select t.check('撤銷後不能直接停用（沒有密碼）', t.try_as('authenticated', :A, format('select public.set_collection_download_password_enabled(%L, false)::text', :'wife_id')), 'ERROR:22023');
+select t.check('撤銷後重新設定，版本繼續往上', t.do_as('authenticated', :A, format('select (public.set_collection_download_password(%L, %L)->>%L)::int > %s', :'wife_id', 'test-wife-pw-B2', 'version', :'wife_v2')), 'true');
+
+-- 總覽與管理紀錄
+select t.check('C 不能讀系列總覽', t.try_as('authenticated', :C, 'select count(*)::text from public.admin_collection_overview()'), 'ERROR:42501');
+select t.check('A 可讀系列總覽（3 個系列）', t.try_as('authenticated', :A, 'select count(*)::text from public.admin_collection_overview()'), '3');
+select t.check('總覽：寵妻系列 2 款作品、1 款公開、密碼已設定', t.try_as('authenticated', :A, format('select work_count || %L || published_count || %L || password_configured from public.admin_collection_overview() where collection_id = %L', '/', '/', :'wife_id')), '2/1/true');
+select t.check('管理紀錄：有系列建立紀錄（含操作者名稱）', (select actor_name from public.admin_audit_log where action = 'collection.create' and collection_id = :'wife_id'::uuid), '管理員 A');
+select t.check('管理紀錄：密碼變更有紀錄', (select (count(*) >= 3)::text from public.admin_audit_log where action like 'password.%' and collection_id = :'wife_id'::uuid), 'true');
+select t.check('管理紀錄不含密碼內容', (select count(*)::text from public.admin_audit_log where detail::text like '%test-wife-pw%' or detail::text like '%' || current_setting('kuma.test_pw') || '%'), '0');
+select t.check('訪客看不到管理紀錄', t.try_as('anon', null, 'select count(*)::text from public.admin_audit_log'), 'ERROR:42501');
+select t.check('C 看不到管理紀錄', t.try_as('authenticated', :C, 'select count(*)::text from public.admin_audit_log'), '0');
+select t.check('管理員不能竄改管理紀錄', t.try_as('authenticated', :A, 'delete from public.admin_audit_log where true returning 1'), 'ERROR:42501');
+select t.check('管理員不能偽造管理紀錄', t.try_as('authenticated', :A, $q$insert into public.admin_audit_log (action) values ('fake') returning 1$q$), 'ERROR:42501');
+
+-- 大頭貼版照片
+select t.check('作品可加上大頭貼版照片', t.do_as('authenticated', :A, format($q$with u as (update public.collection_works set avatar_preview_path = 'collections/w/a1.webp', avatar_original_path = 'collections/w/a1.png', avatar_mime_type = 'image/png', avatar_file_size = 50, avatar_width = 1920, avatar_height = 1920 where collection_id = %L and work_number = 2 returning 1) select count(*)::text from u$q$, :'wife_id')), '1');
+select t.check('大頭貼版欄位必須完整', t.try_as('authenticated', :A, format($q$update public.collection_works set avatar_preview_path = 'x' where collection_id = %L and work_number = 1 returning 1$q$, :'wife_id')), 'ERROR:23514');
+select t.check('訪客可讀大頭貼版預覽', t.try_as('anon', null, format('select avatar_preview_path from public.collection_works where collection_id = %L and work_number = 2', :'wife_id')), 'collections/w/a1.webp');
+select t.check('訪客不能讀大頭貼版原圖路徑', t.try_as('anon', null, 'select avatar_original_path from public.collection_works limit 1'), 'ERROR:42501');
+
+-- 安全刪除系列
+select t.check('名稱不符時不能刪除', t.try_as('authenticated', :A, format('select public.delete_collection(%L, %L, null, %L)::text', :'daily_id', 'delete', '錯的名字')), 'ERROR:22023');
+select t.check('C 不能刪除系列', t.try_as('authenticated', :C, format('select public.delete_collection(%L, %L, null, %L)::text', :'daily_id', 'delete', '熊兔甜蜜日常')), 'ERROR:42501');
+select t.check('移動模式必須選目標系列', t.try_as('authenticated', :A, format('select public.delete_collection(%L, %L, null, %L)::text', :'daily_id', 'move', '熊兔甜蜜日常')), 'ERROR:22023');
+select t.check('刪除甜蜜日常並把作品移到寵妻系列', t.do_as('authenticated', :A, format('select public.delete_collection(%L, %L, %L, %L)->>%L', :'daily_id', 'move', :'wife_id', '熊兔甜蜜日常', 'moved')), '1');
+select t.check('移入的作品編號自動接在後面（不與 No.001 衝突）', (select string_agg(work_number::text || ':' || nickname || ':' || is_published::text, ',' order by work_number) from public.collection_works where collection_id = :'wife_id'::uuid), '1:專屬寵妻執行者:false,2:鞋帶守護者:true,3:甜蜜早餐員:false');
+select t.check('被刪除系列的密碼一併刪除', (select count(*)::text from private.collection_download_secret where collection_id = :'daily_id'::uuid), '0');
+select t.check('刪除有管理紀錄', (select detail->>'mode' from public.admin_audit_log where action = 'collection.delete' and collection_id = :'daily_id'::uuid), 'move');
+select t.check('連同作品刪除會回傳要清除的檔案', t.do_as('authenticated', :B, format('select jsonb_array_length(public.delete_collection(%L, %L, null, %L)->%L)::text', :'wife_id', 'delete', '熊大寵妻系列', 'originals')), '4');
+select t.check('連同作品刪除後作品不存在', (select count(*)::text from public.collection_works where collection_id = :'wife_id'::uuid), '0');
+select t.check('生命共同體不受影響', (select count(*)::text from public.collections where slug = 'one-heart-one-life'), '1');
+
 do $$ begin raise notice '=== 全部權限測試通過 ==='; end $$;

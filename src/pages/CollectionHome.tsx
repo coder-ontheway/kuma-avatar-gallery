@@ -1,14 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import { CardModal, LifeAvatarEditor } from "../components/LifeCard";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { CardModal, CollectionAvatarEditor } from "../components/CollectionCard";
 import { useDownloadAuth } from "../components/DownloadAuth";
-import { fetchCollection, fetchSettings, LIFE_SLUG, previewUrl } from "../lib/api";
+import { collectionPath, fetchCollection, fetchSettings, previewUrl } from "../lib/api";
 import { formatNo } from "../lib/card";
 import { DownloadError } from "../lib/download";
-import { downloadCardsZip, loadFavorites, saveFavorites, type CardZipProgress } from "../lib/lifeDownload";
+import { downloadCardsZip, loadFavorites, saveFavorites, type CardZipProgress } from "../lib/collectionDownload";
 import type { Collection, CollectionWork, SiteSettings } from "../lib/types";
 
-export function useLifeData(preview: boolean) {
+/** 讀取網址中的系列（#/c/:slug）。系列與作品數量都來自資料庫，不寫死在程式中。 */
+export function useCollectionData(slug: string, preview: boolean) {
   const [settings, setSettings] = useState<SiteSettings | null>(null);
   const [collection, setCollection] = useState<Collection | null>(null);
   const [works, setWorks] = useState<CollectionWork[]>([]);
@@ -19,11 +20,11 @@ export function useLifeData(preview: boolean) {
     setLoading(true);
     setError("");
     try {
-      const [s, c] = await Promise.all([fetchSettings(), fetchCollection(LIFE_SLUG, preview)]);
+      const [s, c] = await Promise.all([fetchSettings(), fetchCollection(slug, preview)]);
       setSettings(s);
       setCollection(c.collection);
       setWorks(c.works);
-      if (c.collection) document.title = `${c.collection.name}｜${s.brand_name}`;
+      if (c.collection) document.title = `${c.collection.name}｜KUMA STUDIO`;
     } catch {
       setError("作品資料載入失敗，請檢查網路後重新整理。");
     } finally {
@@ -34,7 +35,7 @@ export function useLifeData(preview: boolean) {
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [preview]);
+  }, [slug, preview]);
 
   return { settings, collection, works, loading, error, reload: load };
 }
@@ -53,7 +54,16 @@ export function useFavorites() {
   return { favs, toggle };
 }
 
-export function LifeHeader({ brand }: { brand: string }) {
+/** 系列能否下載：全站下載開關與系列自己的下載開關都要開啟（真正的阻擋在後端） */
+export function canDownload(settings: SiteSettings | null, collection: Collection | null) {
+  return Boolean(settings?.downloads_enabled && collection?.download_enabled);
+}
+
+export function themeClass(collection: Collection | null) {
+  return `life theme-${collection?.card_theme ?? "forest"}`;
+}
+
+export function CollectionHeader({ brand }: { brand: string }) {
   return (
     <header className="site-header life-header">
       <div className="page header-inner">
@@ -61,11 +71,11 @@ export function LifeHeader({ brand }: { brand: string }) {
           <span className="brand-mark" aria-hidden="true">K</span>
           <span>
             <small>{brand}</small>
-            <strong>熊兔大頭貼收藏館</strong>
+            <strong>KUMA STUDIO 收藏館</strong>
           </span>
         </Link>
-        <Link className="btn small ghost" to="/">
-          ← 回大頭貼收藏館
+        <Link className="btn small ghost" to="/#series">
+          ← 全部系列
         </Link>
       </div>
     </header>
@@ -80,11 +90,12 @@ export function PreviewBanner() {
   );
 }
 
-export default function LifeHome() {
+export default function CollectionHome() {
+  const { slug = "" } = useParams();
   const [params] = useSearchParams();
   const preview = params.get("preview") === "1";
   const navigate = useNavigate();
-  const { settings, collection, works, loading, error, reload } = useLifeData(preview);
+  const { settings, collection, works, loading, error, reload } = useCollectionData(slug, preview);
   const { favs, toggle } = useFavorites();
   const [onlyFavs, setOnlyFavs] = useState(false);
   const [editing, setEditing] = useState<CollectionWork | null>(null);
@@ -92,8 +103,11 @@ export default function LifeHome() {
   const [selectMode, setSelectMode] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const brand = settings?.brand_name ?? "KUMA 工作室";
-  const downloadsEnabled = Boolean(settings?.downloads_enabled);
+  const downloadsEnabled = canDownload(settings, collection);
   const hero = works[0];
+  const base = collection ? collectionPath(collection) : `/c/${slug}`;
+  const idOn = collection?.id_card_enabled ?? true;
+  const cardOn = collection?.card_enabled ?? true;
   const shown = useMemo(() => (onlyFavs ? works.filter((w) => favs.has(w.id)) : works), [works, favs, onlyFavs]);
   const q = preview ? "?preview=1" : "";
 
@@ -102,8 +116,8 @@ export default function LifeHome() {
   }
 
   return (
-    <div className="site life">
-      <LifeHeader brand={brand} />
+    <div className={`site ${themeClass(collection)}`} data-testid="collection-page" data-slug={slug}>
+      <CollectionHeader brand={brand} />
       {preview && <PreviewBanner />}
       <main className="page">
         {loading && <p className="center muted pad">作品載入中…</p>}
@@ -117,11 +131,11 @@ export default function LifeHome() {
         )}
         {!loading && !error && (!collection || works.length === 0) && (
           <div className="card notice center empty">
-            <h1 className="life-title">KUMA 熊兔生命共同體</h1>
-            <p className="life-en">ONE HEART, ONE LIFE</p>
-            <p className="muted">限定收藏館準備中，請追蹤 Facebook 粉專獲得上架通知。</p>
+            <h1 className="life-title">{collection?.name ?? "找不到這個系列"}</h1>
+            {collection?.name_en && <p className="life-en">{collection.name_en}</p>}
+            <p className="muted">{collection ? "系列作品準備中，請追蹤 Facebook 粉專獲得上架通知。" : "這個系列可能尚未公開或已下架。"}</p>
             <Link className="btn primary" to="/">
-              回大頭貼收藏館
+              看全部系列
             </Link>
           </div>
         )}
@@ -130,7 +144,7 @@ export default function LifeHome() {
           <>
             <section className="life-hero" aria-labelledby="life-title">
               <div className="life-hero-text">
-                <p className="life-eyebrow">KUMA STUDIO 限定收藏館</p>
+                <p className="life-eyebrow">KUMA STUDIO 原創系列｜{works.length} 款作品</p>
                 <h1 id="life-title" className="life-title">
                   {collection.name}
                 </h1>
@@ -139,38 +153,46 @@ export default function LifeHome() {
                 {collection.description && <p className="life-desc">{collection.description}</p>}
                 <div className="life-entries">
                   <button type="button" className="btn life-btn" onClick={() => scrollTo("life-works")}>
-                    查看身份證
+                    {idOn ? "查看身份證" : "瀏覽全部作品"}
                   </button>
                   <button type="button" className="btn life-btn primary" onClick={() => setEditing(hero)}>
                     製作宣言大頭貼
                   </button>
-                  <button type="button" className="btn life-btn" onClick={() => scrollTo("life-cards")}>
-                    收藏卡
-                  </button>
+                  {cardOn && (
+                    <button type="button" className="btn life-btn" onClick={() => scrollTo("life-cards")}>
+                      收藏卡
+                    </button>
+                  )}
                 </div>
               </div>
-              <Link to={`/life/${hero.work_number}${q}`} className="life-hero-photo" aria-label={`查看 ${formatNo(hero.work_number)} ${hero.nickname}`}>
-                <img src={previewUrl(hero.preview_path!)} alt={`${formatNo(hero.work_number)} ${hero.nickname}`} width={hero.width ?? undefined} height={hero.height ?? undefined} />
-                <span className="life-hero-badge">
-                  {formatNo(hero.work_number)}｜{hero.nickname}
-                </span>
-              </Link>
+              {collection.hero_path ? (
+                <div className="life-hero-photo">
+                  <img src={previewUrl(collection.hero_path)} alt={`${collection.name} 主視覺`} data-testid="collection-hero" />
+                </div>
+              ) : (
+                <Link to={`${base}/${hero.work_number}${q}`} className="life-hero-photo" aria-label={`查看 ${formatNo(hero.work_number)} ${hero.nickname}`}>
+                  <img src={previewUrl(hero.preview_path!)} alt={`${formatNo(hero.work_number)} ${hero.nickname}`} width={hero.width ?? undefined} height={hero.height ?? undefined} />
+                  <span className="life-hero-badge">
+                    {formatNo(hero.work_number)}｜{hero.nickname}
+                  </span>
+                </Link>
+              )}
             </section>
 
             <section id="life-works" className="section" aria-labelledby="life-works-title">
               <div className="section-head">
                 <h2 id="life-works-title" className="section-title life-section-title">
-                  {works.length} 款生命共同體 <small>選出你的專屬編號</small>
+                  全部 {works.length} 款作品 <small>選出你的專屬編號</small>
                 </h2>
                 <button type="button" className={`chip ${onlyFavs ? "active" : ""}`} aria-pressed={onlyFavs} onClick={() => setOnlyFavs(!onlyFavs)}>
                   ♥ 我的收藏（{works.filter((w) => favs.has(w.id)).length}）
                 </button>
               </div>
-              {onlyFavs && shown.length === 0 && <p className="muted center pad">還沒有收藏。點作品右上角的 ♡ 就能收藏喜歡的生命共同體。</p>}
+              {onlyFavs && shown.length === 0 && <p className="muted center pad">還沒有收藏。點作品右上角的 ♡ 就能收藏喜歡的作品。</p>}
               <div className="life-grid">
                 {shown.map((w) => (
                   <article key={w.id} className="life-card" data-testid="life-card">
-                    <Link to={`/life/${w.work_number}${q}`} className="life-card-photo">
+                    <Link to={`${base}/${w.work_number}${q}`} className="life-card-photo">
                       <img src={previewUrl(w.preview_path!)} alt={`${formatNo(w.work_number)} ${w.nickname}`} loading="lazy" decoding="async" width={w.width ?? undefined} height={w.height ?? undefined} />
                       <span className="life-no">{formatNo(w.work_number)}</span>
                       {!w.is_published && <span className="badge draft">草稿</span>}
@@ -182,15 +204,17 @@ export default function LifeHome() {
                       <h3 className="life-nick">{w.nickname}</h3>
                       {w.title && <p className="life-work-title">{w.title}</p>}
                       <div className="life-actions">
-                        <button type="button" className="btn small ghost" onClick={() => navigate(`/life/${w.work_number}${q}`)}>
-                          查看身份證
+                        <button type="button" className="btn small ghost" onClick={() => navigate(`${base}/${w.work_number}${q}`)}>
+                          {idOn ? "查看身份證" : "查看作品"}
                         </button>
                         <button type="button" className="btn small primary" onClick={() => setEditing(w)}>
                           製作大頭貼
                         </button>
-                        <button type="button" className="btn small ghost" onClick={() => setCard(w)}>
-                          收藏卡
-                        </button>
+                        {cardOn && (
+                          <button type="button" className="btn small ghost" onClick={() => setCard(w)}>
+                            收藏卡
+                          </button>
+                        )}
                       </div>
                     </div>
                   </article>
@@ -198,13 +222,14 @@ export default function LifeHome() {
               </div>
             </section>
 
+            {cardOn && (
             <section id="life-cards" className="section life-cards" aria-labelledby="life-cards-title">
               <div className="section-head">
                 <h2 id="life-cards-title" className="section-title life-section-title">
-                  生命共同體收藏卡 <small>{works.length} 張一套</small>
+                  {collection.name}收藏卡 <small>{works.length} 張一套</small>
                 </h2>
               </div>
-              <p className="muted">每一款都有自己的收藏卡（1200 × 1800 高畫質圖片）。可以單張下載、勾選多張下載，或一次下載完整一套 ZIP。下載需要生命共同體專屬下載密碼。</p>
+              <p className="muted">每一款都有自己的收藏卡（1200 × 1800 高畫質圖片）。可以單張下載、勾選多張下載，或一次下載完整一套 ZIP。下載需要「{collection.name}」的專屬下載密碼（其他系列的密碼不能使用）。</p>
               <div className="row wrap">
                 <button type="button" className={`btn small ${selectMode ? "primary" : "ghost"}`} onClick={() => setSelectMode(!selectMode)} aria-pressed={selectMode}>
                   {selectMode ? "完成選擇" : "選擇多張"}
@@ -250,6 +275,7 @@ export default function LifeHome() {
                 disabled={preview}
               />
             </section>
+            )}
           </>
         )}
       </main>
@@ -257,7 +283,7 @@ export default function LifeHome() {
       <footer className="site-footer">
         <div className="page">
           <p>
-            © {new Date().getFullYear()} {brand}　KUMA 熊兔生命共同體為 {brand} 原創角色作品
+            © {new Date().getFullYear()} {brand}　KUMA STUDIO｜{collection?.name ?? "原創系列"}為 {brand} 原創角色作品
           </p>
           {settings?.facebook_url && (
             <a href={settings.facebook_url} target="_blank" rel="noopener noreferrer">
@@ -268,7 +294,7 @@ export default function LifeHome() {
       </footer>
 
       {editing && collection && (
-        <LifeAvatarEditor collection={collection} work={editing} platform="facebook" downloadsEnabled={downloadsEnabled} onClose={() => setEditing(null)} previewOnly={preview} />
+        <CollectionAvatarEditor collection={collection} work={editing} platform="facebook" downloadsEnabled={downloadsEnabled} onClose={() => setEditing(null)} previewOnly={preview} />
       )}
       {card && collection && <CardModal collection={collection} work={card} downloadsEnabled={downloadsEnabled} onClose={() => setCard(null)} previewOnly={preview} />}
     </div>
@@ -302,14 +328,14 @@ function CardZipButtons({
       setMsg({ type: "error", text: "請先點「選擇多張」，再勾選想要的收藏卡。" });
       return;
     }
-    if (!(await ensureAuth(collection.id))) return;
+    if (!(await ensureAuth(collection.id, collection.name))) return;
     setProgress({ done: 0, total: 0 });
     try {
       let r;
       try {
         r = await downloadCardsZip(collection, works, ids, setProgress);
       } catch (e) {
-        if (e instanceof DownloadError && e.code === "token_invalid" && (await ensureAuth(collection.id))) r = await downloadCardsZip(collection, works, ids, setProgress);
+        if (e instanceof DownloadError && e.code === "token_invalid" && (await ensureAuth(collection.id, collection.name))) r = await downloadCardsZip(collection, works, ids, setProgress);
         else throw e;
       }
       setMsg(

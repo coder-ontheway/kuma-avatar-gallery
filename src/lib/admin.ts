@@ -48,7 +48,7 @@ function stamp() {
 }
 
 /** 原圖原封不動上傳到私有 originals；另存一張縮小的公開預覽圖。prefix 用於區分主題系列（例如 "life/"） */
-export async function uploadPair(id: string, file: File, kind: "original" | "plain" = "original", prefix = "") {
+export async function uploadPair(id: string, file: File, kind: "original" | "plain" | "avatar" = "original", prefix = "") {
   const prepared = await prepareImage(file);
   const s = stamp();
   const originalPath = `${prefix}${id}/${s}-${kind}.${extFromMime(file.type)}`;

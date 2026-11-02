@@ -58,12 +58,13 @@ export default function AdminLayout() {
     <div className="admin">
       <header className="admin-header">
         <div className="page header-inner">
-          <strong>KUMA 管理後臺</strong>
+          <strong>KUMA STUDIO 管理後臺</strong>
           <nav className="admin-nav">
-            <NavLink to="/admin" end>作品管理</NavLink>
-            <NavLink to="/admin/life">生命共同體</NavLink>
+            <NavLink to="/admin" end>系列管理</NavLink>
+            <NavLink to="/admin/images">大頭貼作品</NavLink>
             <NavLink to="/admin/categories">分類管理</NavLink>
             <NavLink to="/admin/settings">網站設定</NavLink>
+            <NavLink to="/admin/logs">管理紀錄</NavLink>
             <a href="#/" target="_blank" rel="noopener">查看網站 ↗</a>
           </nav>
           <div className="row">

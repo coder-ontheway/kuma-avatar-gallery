@@ -10,7 +10,8 @@ describe("migrations", () => {
   for (const file of readdirSync(dir).filter((f) => f.endsWith(".sql"))) {
     it(`${file}：UPDATE／DELETE 都有 WHERE`, () => {
       const sql = readFileSync(join(dir, file), "utf8").replace(/--.*$/gm, "");
-      const statements = sql.split(";").map((s) => s.trim().toLowerCase());
+      // 函式本體第一句前面的 begin 不影響判斷（例：begin insert … on conflict do update 不受 safeupdate 限制）
+      const statements = sql.split(";").map((s) => s.trim().toLowerCase().replace(/^begin\s+/, ""));
       const bad = statements.filter(
         (s) => /(^|\s)(delete\s+from|update)\s+[a-z_."]+(\s|$)/.test(s) && !/\swhere\s/.test(s + " ") && !/^(create|grant|revoke|alter|insert)/.test(s),
       );
