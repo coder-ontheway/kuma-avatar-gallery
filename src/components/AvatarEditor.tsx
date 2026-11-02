@@ -6,6 +6,7 @@ import {
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
+  type ReactNode,
 } from "react";
 import Modal from "./Modal";
 import { useDownloadAuth } from "./DownloadAuth";
@@ -141,6 +142,10 @@ interface Props {
   collectionName?: string;
   /** 系列作品使用的原圖版本（有大頭貼版時為 "avatar"） */
   collectionVariant?: "original" | "avatar";
+  /** 系列作品的額外大頭貼 id（第 2 張以後） */
+  collectionAvatarId?: string;
+  /** 大頭貼款式選擇（同一款作品有多張大頭貼時顯示） */
+  picker?: ReactNode;
   /** 熊兔生命共同體模式 */
   life?: LifeOptions;
   /** 下載檔名前綴（例如 No.001_熊兔共生體） */
@@ -149,7 +154,7 @@ interface Props {
 
 type DragState = { kind: "image" } | { kind: "text"; id: string; offX: number; offY: number } | null;
 
-export default function AvatarEditor({ image, initialPlatform, downloadsEnabled, onClose, previewOnly, source = "images", collectionId, collectionName, collectionVariant = "original", life, fileTitle: fileTitleProp }: Props) {
+export default function AvatarEditor({ image, initialPlatform, downloadsEnabled, onClose, previewOnly, source = "images", collectionId, collectionName, collectionVariant = "original", collectionAvatarId, picker, life, fileTitle: fileTitleProp }: Props) {
   const { ensureAuth } = useDownloadAuth();
   const [platform, setPlatform] = useState<Platform>(initialPlatform);
   const [panel, setPanel] = useState<"photo" | "text">(life ? "text" : "photo");
@@ -292,8 +297,20 @@ export default function AvatarEditor({ image, initialPlatform, downloadsEnabled,
     setSelectedId(null);
   }
 
+  // 換成另一張大頭貼時：裁切位置依新圖片重新計算，文字保留
+  const firstImage = useRef(image.preview_path);
+  useEffect(() => {
+    if (firstImage.current === image.preview_path) return;
+    firstImage.current = image.preview_path;
+    const fresh = initialDesign();
+    designRef.current = { ...designRef.current, crops: fresh.crops };
+    setDesignState(designRef.current);
+    setMessage(null);
+  }, [image.preview_path, initialDesign]);
+
   useEffect(() => {
     let alive = true;
+    setLoadError("");
     loadImage(previewUrl(sourcePath))
       .then((i) => alive && setImg(i))
       .catch(() => alive && setLoadError("預覽圖載入失敗，請重新整理頁面再試。"));
@@ -472,10 +489,10 @@ export default function AvatarEditor({ image, initialPlatform, downloadsEnabled,
     setBusy(kind);
     try {
       const variant = source === "collection" ? collectionVariant : usePlain ? "plain" : "original";
-      const { blob } = await fetchOriginal(image.id, variant, kind, source, scope).catch(async (e) => {
+      const { blob } = await fetchOriginal(image.id, variant, kind, source, scope, collectionAvatarId).catch(async (e) => {
         // 憑證失效（例如密碼剛更新）時重新要求輸入一次
         if (e instanceof DownloadError && e.code === "token_invalid" && (await ensureAuth(scope, collectionName))) {
-          return fetchOriginal(image.id, variant, kind, source, scope);
+          return fetchOriginal(image.id, variant, kind, source, scope, collectionAvatarId);
         }
         throw e;
       });
@@ -602,6 +619,7 @@ export default function AvatarEditor({ image, initialPlatform, downloadsEnabled,
           </div>
 
           <div className="editor-side">
+            {picker}
             {image.plain_preview_path && (
               <div className="plain-toggle" role="group" aria-label="作品上的文字">
                 <span className="tiny muted">作品上的文字</span>

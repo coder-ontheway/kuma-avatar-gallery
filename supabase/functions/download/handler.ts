@@ -64,6 +64,16 @@ export interface CollectionWorkRow {
   collection_public: boolean;
 }
 
+/** 作品的額外大頭貼（collection_work_avatars） */
+export interface WorkAvatarRow {
+  id: string;
+  work_id: string;
+  original_path: string;
+  mime_type: string;
+  file_size: number;
+  sort_order: number;
+}
+
 export interface Deps {
   tokenSecret: string;
   allowedOrigins: string[]; // 空陣列代表不限制來源
@@ -72,6 +82,8 @@ export interface Deps {
   monthlyPublic(): Promise<boolean>;
   listImages(ids: string[] | null): Promise<ImageRow[]>;
   listCollectionWorks?(ids: string[] | null): Promise<CollectionWorkRow[]>;
+  /** 額外大頭貼（依 id 讀取；不存在時回傳 null） */
+  getWorkAvatar?(avatarId: string): Promise<WorkAvatarRow | null>;
   verifyCollectionPassword?(collectionId: string, password: string, clientHash: string): Promise<VerifyResult>;
   /** enabled：系列已公開、系列開放下載、專屬密碼已設定且啟用（舊版資料庫沒有此欄位時視為 true） */
   collectionDownloadState?(collectionId: string): Promise<{ version: number; configured: boolean; enabled?: boolean }>;
@@ -255,7 +267,16 @@ async function sign(body: Record<string, unknown>, deps: Deps, cors: Record<stri
     ids = [...new Set(body.ids as string[])];
   }
 
-  if (isCollection) return await signCollection(payload.c!, ids, variant, deps, cors);
+  let avatarId: string | null = null;
+  if (body.avatar_id !== undefined) {
+    // 額外大頭貼：只能搭配單一作品的大頭貼版下載
+    if (!isCollection || variant !== "avatar" || ids === null || ids.length !== 1 || typeof body.avatar_id !== "string" || !UUID_RE.test(body.avatar_id)) {
+      return json(400, { error: "bad_request", message: "大頭貼款式格式錯誤。" }, cors);
+    }
+    avatarId = body.avatar_id;
+  }
+
+  if (isCollection) return await signCollection(payload.c!, ids, variant, deps, cors, avatarId);
   if (body.source !== undefined && body.source !== "images") {
     return json(400, { error: "bad_request", message: "未知的作品來源。" }, cors);
   }
@@ -299,10 +320,12 @@ async function signCollection(
   variant: unknown,
   deps: Deps,
   cors: Record<string, string>,
+  avatarId: string | null = null,
 ) {
   if ((variant !== "original" && variant !== "avatar") || !deps.listCollectionWorks) {
     return json(400, { error: "bad_request", message: "未知的作品版本。" }, cors);
   }
+  if (avatarId) return await signExtraAvatar(collectionId, ids![0], avatarId, deps, cors);
   const avatar = variant === "avatar";
   const rows = (await deps.listCollectionWorks(ids))
     .filter((r) => r.collection_id === collectionId && r.collection_public && r.is_published && r.is_downloadable && r.original_path && r.mime_type && r.file_size)
@@ -322,4 +345,33 @@ async function signCollection(
     }))
     .filter((r) => typeof r.url === "string");
   return json(200, { items, expires_in: SIGNED_URL_TTL_SECONDS }, cors);
+}
+
+/** 額外大頭貼：必須屬於該系列中「已公開、可下載」的那一款作品 */
+async function signExtraAvatar(
+  collectionId: string,
+  workId: string,
+  avatarId: string,
+  deps: Deps,
+  cors: Record<string, string>,
+) {
+  const notFound = () => json(404, { error: "not_found", message: "找不到可下載的作品。" }, cors);
+  if (!deps.getWorkAvatar) return notFound();
+  const [work] = (await deps.listCollectionWorks!([workId]))
+    .filter((r) => r.id === workId && r.collection_id === collectionId && r.collection_public && r.is_published && r.is_downloadable);
+  if (!work) return notFound();
+  const extra = await deps.getWorkAvatar(avatarId);
+  if (!extra || extra.work_id !== work.id || !extra.original_path) return notFound();
+  const [url] = await deps.signUrls([extra.original_path], SIGNED_URL_TTL_SECONDS);
+  if (typeof url !== "string") return notFound();
+  return json(200, {
+    items: [{
+      id: work.id,
+      title: `No.${pad3(work.work_number)}_${work.nickname}_大頭貼`,
+      mime_type: extra.mime_type,
+      file_size: extra.file_size,
+      url,
+    }],
+    expires_in: SIGNED_URL_TTL_SECONDS,
+  }, cors);
 }

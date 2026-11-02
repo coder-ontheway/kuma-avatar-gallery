@@ -124,7 +124,7 @@ export type Purpose = "avatar" | "original" | "card";
 export type Source = "images" | "collection";
 
 async function sign(
-  body: { ids?: string[]; all?: boolean; variant?: Variant; purpose?: Purpose; source?: Source },
+  body: { ids?: string[]; all?: boolean; variant?: Variant; purpose?: Purpose; source?: Source; avatar_id?: string },
   scope: AuthScope = null,
 ): Promise<SignedItem[]> {
   const token = currentToken(scope);
@@ -160,9 +160,10 @@ export async function fetchOriginal(
   purpose: Purpose = "original",
   source: Source = "images",
   collectionId: AuthScope = null,
+  avatarId?: string,
 ): Promise<{ blob: Blob; item: SignedItem }> {
   const [item] = await (source === "collection"
-    ? sign({ ids: [id], purpose, source, ...(variant === "avatar" ? { variant } : {}) }, collectionId)
+    ? sign({ ids: [id], purpose, source, ...(variant === "avatar" ? { variant, ...(avatarId ? { avatar_id: avatarId } : {}) } : {}) }, collectionId)
     : sign({ ids: [id], variant, purpose }));
   if (!item) throw new DownloadError("找不到可下載的作品。", "not_found", 404);
   try {

@@ -1,5 +1,5 @@
 import { supabase } from "./supabase";
-import type { Category, Collection, CollectionSummary, CollectionWork, PublicImage, SiteSettings } from "./types";
+import type { Category, Collection, CollectionSummary, CollectionWork, PublicImage, SiteSettings, WorkAvatar } from "./types";
 import { sanitizeZones } from "./protect";
 
 // 訪客只能讀取這些欄位（資料庫以欄位權限限制，看不到私有原圖路徑）
@@ -74,7 +74,24 @@ export async function fetchCollection(slug: string, preview = false): Promise<{ 
   const works = (w as CollectionWork[])
     .map((x) => ({ ...x, protect_zones: sanitizeZones(x.protect_zones) }))
     .filter((x) => x.preview_path && (preview || x.is_published));
-  return { collection: c as Collection, works };
+  return { collection: c as Collection, works: await attachExtraAvatars(works) };
+}
+
+export const PUBLIC_AVATAR_COLUMNS = "id,work_id,sort_order,preview_path,mime_type,file_size,width,height";
+
+/** 附上每款作品的額外大頭貼。資料庫尚未升級（沒有這張表）時視為沒有額外大頭貼。 */
+export async function attachExtraAvatars<T extends CollectionWork>(works: T[], columns = PUBLIC_AVATAR_COLUMNS): Promise<T[]> {
+  if (works.length === 0) return works;
+  const { data, error } = await supabase
+    .from("collection_work_avatars")
+    .select(columns)
+    .in("work_id", works.map((w) => w.id))
+    .order("sort_order")
+    .order("created_at");
+  if (error || !data) return works.map((w) => ({ ...w, extra_avatars: [] }));
+  const byWork = new Map<string, WorkAvatar[]>();
+  for (const a of data as unknown as WorkAvatar[]) byWork.set(a.work_id, [...(byWork.get(a.work_id) ?? []), a]);
+  return works.map((w) => ({ ...w, extra_avatars: byWork.get(w.id) ?? [] }));
 }
 
 /** 首頁：所有已公開的系列（依排序），附作品數量與封面。系列數量不寫死，後臺新增後自動出現。 */

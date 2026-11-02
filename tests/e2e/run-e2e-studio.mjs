@@ -22,6 +22,14 @@ const { chromium, devices } = createRequire(import.meta.url)("playwright");
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const OUT = path.join(ROOT, "tests/e2e/output-studio");
 const ART = path.join(ROOT, "tests/e2e/private-artworks/wife");
+// RR 另外提供的 No.001～004 額外大頭貼（第 2 款）
+const EXTRA_ART = path.join(ROOT, "tests/e2e/private-artworks/wife-extra");
+const EXTRA = [
+  { no: 1, file: "IMG_4841.jpeg" },
+  { no: 2, file: "IMG_4843.jpeg" },
+  { no: 3, file: "IMG_4844.jpeg" },
+  { no: 4, file: "IMG_4845.jpeg" },
+];
 const DB = "kuma_e2e_studio";
 const API_PORT = 54341;
 const WEB_PORT = 4193;
@@ -44,11 +52,11 @@ let PW_DAILY = ""; // 由「重新產生密碼」產生
 
 // 熊大寵妻系列：RR 提供的五組故事（劇情照＋配套大頭貼）
 const WIFE = [
-  { no: 1, key: "bedtime", title: "睡前貼心照顧", story: "熊大替兔兔蓋被子。", avatar: "睡前熊兔大頭貼" },
-  { no: 2, key: "tea", title: "暖心奉茶", story: "熊大送上熱茶與點心。", avatar: "熱茶熊兔大頭貼" },
-  { no: 3, key: "umbrella", title: "雨中共撐一把傘", story: "熊大替兔兔撐傘。", avatar: "雨傘熊兔大頭貼" },
-  { no: 4, key: "breakfast", title: "溫馨早餐", story: "熊大準備早餐送到床邊。", avatar: "早餐熊兔大頭貼" },
-  { no: 5, key: "garden", title: "花園小驚喜", story: "熊大為兔兔戴上花冠。", avatar: "花園熊兔大頭貼" },
+  { no: 1, key: "bedtime", title: "睡前貼心照顧", story: "兔兔準備睡覺，熊大親手替她蓋好被子。", avatar: "睡前熊兔大頭貼" },
+  { no: 2, key: "tea", title: "暖心奉茶", story: "熱茶、點心都準備好了，兔兔只要負責享受。", avatar: "熱茶熊兔大頭貼" },
+  { no: 3, key: "umbrella", title: "雨中共撐一把傘", story: "雨可以下不停，兔兔絕對不能淋到雨！", avatar: "雨傘熊兔大頭貼" },
+  { no: 4, key: "breakfast", title: "溫馨早餐", story: "熊大親自準備早餐，送到兔兔床邊。", avatar: "早餐熊兔大頭貼" },
+  { no: 5, key: "garden", title: "花園小驚喜", story: "熊大親手為兔兔戴上花冠，把浪漫送到她面前。", avatar: "花園熊兔大頭貼" },
 ];
 const WIFE_MANIFESTOS = ["熊大專屬寵妻員。", "兔兔最大，熊大負責執行。", "寵兔兔是熊大的終身任務。", "你負責可愛，我負責寵你。", "今天也要把兔兔寵上天。"];
 
@@ -335,13 +343,39 @@ await step("編輯熊大寵妻五款作品的稱號、名稱、介紹與宣言",
   await saveSeriesForm(pageA, {
     manifestos: WIFE_MANIFESTOS,
     tagline: "兔兔最大，熊大負責寵。",
-    description: "熊大用每一個日常小動作，把兔兔寵上天。",
+    description: "五組甜蜜限定收藏，每一組都有一張專屬劇情照＋一張配套熊兔大頭貼！",
   });
   check("寵妻系列有自己的 5 句預設宣言", sql("select cardinality(manifestos) from public.collections where slug = 'pamper-wife'") === "5");
   await pageA.getByTestId("cover-input").setInputFiles(path.join(ART, wifeFiles.find((f) => f.includes("avatar_02"))), { timeout: 60000 });
   await pageA.getByText("系列封面已更新。").waitFor();
   check("寵妻系列設定自己的封面", sql("select cover_path like 'collections/%' from public.collections where slug = 'pamper-wife'") === "t");
   await publishAll(pageA);
+});
+
+await step("No.001～004 加上 RR 提供的額外大頭貼（保留原本的大頭貼版）", async () => {
+  const id = colId("pamper-wife");
+  const beforeAvatars = sql(`select string_agg(avatar_original_path, ',' order by work_number) from public.collection_works where collection_id = '${id}'`);
+  for (const e of EXTRA) {
+    const row = pageA.getByTestId("life-admin-item").filter({ hasText: `No.00${e.no}｜` });
+    const [chooser] = await Promise.all([pageA.waitForEvent("filechooser"), row.getByTestId("extra-avatar-add").click()]);
+    await chooser.setFiles(path.join(EXTRA_ART, e.file));
+    await pageA.getByText(`已替 No.00${e.no} 新增 1 張大頭貼。`).waitFor({ timeout: 60000 });
+  }
+  const counts = sql(`select string_agg(w.work_number || '=' || (select count(*) from public.collection_work_avatars a where a.work_id = w.id), ',' order by w.work_number) from public.collection_works w where w.collection_id = '${id}'`);
+  check("No.001～004 各有 1 張額外大頭貼，No.005 沒有", counts === "1=1,2=1,3=1,4=1,5=0", counts);
+  check("原本的大頭貼版保留不變", sql(`select string_agg(avatar_original_path, ',' order by work_number) from public.collection_works where collection_id = '${id}'`) === beforeAvatars);
+  const extras = sql(`select string_agg(w.work_number || '|' || a.original_path || '|' || a.file_size, ',' order by w.work_number) from public.collection_work_avatars a join public.collection_works w on w.id = a.work_id where w.collection_id = '${id}'`).split(",");
+  let untouched = extras.length === 4;
+  for (const row of extras) {
+    const [no, p, size] = row.split("|");
+    const src = fs.readFileSync(path.join(EXTRA_ART, EXTRA.find((e) => String(e.no) === no).file));
+    const stored = fs.readFileSync(path.join(STORAGE, "originals", p));
+    untouched &&= Number(size) === src.length && Buffer.compare(src, stored) === 0 && p.startsWith(`collections/${id}/`);
+  }
+  check("額外大頭貼原檔未經修改，存在私有 originals 的系列資料夾", untouched);
+  check("後臺每款顯示「共 2 款大頭貼」", (await pageA.getByTestId("extra-count").allInnerTexts()).filter((t) => t === "共 2 款大頭貼").length === 4);
+  check("新增額外大頭貼有管理紀錄", sql(`select count(*) from public.admin_audit_log where action = 'work.avatar_add' and collection_id = '${id}'`) === "4");
+  await pageA.screenshot({ path: path.join(OUT, "admin-wife-extra-avatars.png"), fullPage: true });
 });
 
 // ===================================================================
@@ -432,7 +466,7 @@ await step("寵妻身份證使用系列自己的標題與宣言名稱", async ()
   await card.waitFor();
   const t = await card.innerText();
   check("身份證標題為「熊大寵妻身份證」", t.includes("熊大寵妻身份證"));
-  check("身份證顯示系列名稱、No.003、稱號、介紹與寵妻宣言", t.includes("熊大寵妻系列") && t.includes("No.003") && t.includes("雨中共撐一把傘") && t.includes("熊大替兔兔撐傘") && t.includes("寵妻宣言") && t.includes(WIFE_MANIFESTOS[2]));
+  check("身份證顯示系列名稱、No.003、稱號、介紹與寵妻宣言", t.includes("熊大寵妻系列") && t.includes("No.003") && t.includes("雨中共撐一把傘") && t.includes("兔兔絕對不能淋到雨") && t.includes("寵妻宣言") && t.includes(WIFE_MANIFESTOS[2]));
   check("身份證顯示 KUMA STUDIO 品牌", t.includes("KUMA STUDIO"));
   await fan.waitForTimeout(500);
   await fan.screenshot({ path: path.join(OUT, "wife-id-card-iphone.png"), fullPage: true });
@@ -466,6 +500,23 @@ await step("寵妻大頭貼：系列宣言、密碼隔離、使用配套大頭�
   check("大頭貼檔名含系列、編號與稱號", d.suggestedFilename().includes("熊大寵妻系列") && d.suggestedFilename().includes("No.003"), d.suggestedFilename());
   const used = signedPaths.slice(before);
   check("大頭貼使用配套「大頭貼版」原圖（不是劇情照）", used.length === 1 && /-avatar\./.test(used[0]), used.join(","));
+
+  // 切換到第 2 款（RR 另外提供的額外大頭貼）
+  const choices = fan.getByTestId("avatar-choices");
+  check("大頭貼編輯器顯示 2 款大頭貼可選", (await choices.getByRole("button").count()) === 2);
+  await choices.getByRole("button", { name: "大頭貼 2" }).click();
+  await fan.waitForTimeout(800);
+  check("可以切換到第 2 款大頭貼", (await choices.getByRole("button", { name: "大頭貼 2" }).getAttribute("aria-pressed")) === "true");
+  await fan.screenshot({ path: path.join(OUT, "wife-editor-extra-iphone.png") });
+  const before2 = signedPaths.length;
+  const [d2] = await Promise.all([fan.waitForEvent("download"), fan.getByRole("button", { name: "下載我的專屬大頭貼" }).click()]);
+  const file2 = path.join(OUT, d2.suggestedFilename());
+  await d2.saveAs(file2);
+  const png2 = PNG.sync.read(fs.readFileSync(file2));
+  check("第 2 款大頭貼下載（同系列 15 分鐘內不需再輸入密碼）", png2.width === png2.height && png2.width >= 1080, `${d2.suggestedFilename()} ${png2.width}×${png2.height}`);
+  check("第 2 款檔名標示款式", d2.suggestedFilename().includes("款式2"), d2.suggestedFilename());
+  const used2 = signedPaths.slice(before2);
+  check("第 2 款使用額外大頭貼原圖", used2.length === 1 && /-extra\./.test(used2[0]), used2.join(","));
   await fan.getByRole("button", { name: "關閉" }).click();
 });
 
@@ -549,6 +600,15 @@ await step("未經授權無法用直接網址取得原圖", async () => {
   check("訪客 API 讀不到原圖路徑", cols.status >= 400, `HTTP ${cols.status}`);
   const av = await fetch(`${API}/rest/v1/collection_works?select=avatar_original_path`, { headers: { apikey: mock.ANON_KEY } });
   check("訪客 API 讀不到大頭貼版原圖路徑", av.status >= 400, `HTTP ${av.status}`);
+  const ex = await fetch(`${API}/rest/v1/collection_work_avatars?select=original_path`, { headers: { apikey: mock.ANON_KEY } });
+  check("訪客 API 讀不到額外大頭貼原圖路徑", ex.status >= 400, `HTTP ${ex.status}`);
+  const exId = sql(`select a.id from public.collection_work_avatars a join public.collection_works w on w.id = a.work_id join public.collections c on c.id = w.collection_id where c.slug = 'pamper-wife' and w.work_number = 1`);
+  const exWork = sql(`select w.id from public.collection_works w join public.collections c on c.id = w.collection_id where c.slug = 'pamper-wife' and w.work_number = 1`);
+  const exNo = await fn({ action: "sign", source: "collection", variant: "avatar", ids: [exWork], avatar_id: exId });
+  check("沒有授權不能下載額外大頭貼", exNo.status === 401, `HTTP ${exNo.status}`);
+  const tLife = await tokenFor("one-heart-one-life", PW_LIFE);
+  const exCross = await fn({ action: "sign", token: tLife, source: "collection", variant: "avatar", ids: [exWork], avatar_id: exId });
+  check("其他系列的授權不能下載寵妻的額外大頭貼", exCross.status === 404, `HTTP ${exCross.status}`);
   const html = await (await fetch(SITE)).text();
   const js = fs.readdirSync(path.join(DIST, "assets")).filter((f) => f.endsWith(".js")).map((f) => fs.readFileSync(path.join(DIST, "assets", f), "utf8")).join("");
   check("網頁原始碼與前端程式不含任何測試密碼", ![PW_LIFE, PW_WIFE, PW_DAILY, PW_SITE].some((pw) => html.includes(pw) || js.includes(pw)));

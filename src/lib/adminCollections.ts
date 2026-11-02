@@ -2,10 +2,10 @@
 // 寫入都受資料庫 RLS、RPC 與 Storage 政策保護，只有兩位授權管理員能成功。
 import { supabase } from "./supabase";
 import { fail, removeFiles, uploadPair } from "./admin";
-import { COLLECTION_COLUMNS, LIFE_SLUG } from "./api";
+import { attachExtraAvatars, COLLECTION_COLUMNS, LIFE_SLUG } from "./api";
 import { prepareImage } from "./imageProcessing";
 import { sanitizeZones } from "./protect";
-import type { AdminCollectionWork, AuditEntry, Collection, CollectionOverview } from "./types";
+import type { AdminCollectionWork, AuditEntry, Collection, CollectionOverview, WorkAvatar } from "./types";
 
 function lifeFail(prefix: string, error: { message?: string; code?: string } | null): never {
   if (error?.code === "23505" && /slug/.test(error.message ?? "")) throw new Error(`${prefix}：網址代稱已被其他系列使用，請換一個。`);
@@ -142,7 +142,42 @@ export async function listWorks(collectionId: string): Promise<AdminCollectionWo
     .order("sort_order")
     .order("work_number");
   if (error) lifeFail("讀取系列作品失敗", error);
-  return (data as AdminCollectionWork[]).map(normalize);
+  return attachExtraAvatars((data as AdminCollectionWork[]).map(normalize), "*");
+}
+
+/** 新增一張額外大頭貼（原檔原封不動存到私有空間；粉絲製作大頭貼時可切換） */
+export async function addExtraAvatar(work: AdminCollectionWork, file: File): Promise<WorkAvatar> {
+  const { prepared, originalPath, previewPath } = await uploadPair(work.id, file, "extra", `collections/${work.collection_id}/`);
+  const last = Math.max(0, ...(work.extra_avatars ?? []).map((a) => a.sort_order));
+  const { data, error } = await supabase
+    .from("collection_work_avatars")
+    .insert({
+      work_id: work.id,
+      sort_order: last + 10,
+      preview_path: previewPath,
+      original_path: originalPath,
+      mime_type: file.type,
+      file_size: file.size,
+      width: prepared.width,
+      height: prepared.height,
+    })
+    .select("*")
+    .single();
+  if (error || !data) {
+    await removeFiles(previewPath, originalPath);
+    if (error?.code === "42P01" || /collection_work_avatars/.test(error?.message ?? "")) {
+      throw new Error("新增大頭貼失敗：請先在 Supabase SQL Editor 執行 supabase/migrations/20261103000000_kuma_studio_collections.sql。");
+    }
+    lifeFail("新增大頭貼失敗", error);
+  }
+  return data as WorkAvatar;
+}
+
+export async function removeExtraAvatar(avatar: WorkAvatar) {
+  const { data, error } = await supabase.from("collection_work_avatars").delete().eq("id", avatar.id).select("id");
+  if (error) lifeFail("移除大頭貼失敗", error);
+  if (!data?.length) throw new Error("移除大頭貼失敗：沒有管理權限。");
+  if (avatar.original_path) await removeFiles(avatar.preview_path, avatar.original_path);
 }
 
 export async function createWork(
@@ -232,6 +267,7 @@ export async function deleteWork(work: AdminCollectionWork) {
   if (!data?.length) throw new Error("刪除失敗：沒有管理權限。");
   if (work.preview_path && work.original_path) await removeFiles(work.preview_path, work.original_path);
   if (work.avatar_preview_path && work.avatar_original_path) await removeFiles(work.avatar_preview_path, work.avatar_original_path);
+  for (const a of work.extra_avatars ?? []) if (a.original_path) await removeFiles(a.preview_path, a.original_path);
 }
 
 export async function saveWorkOrder(items: { id: string; sort_order: number }[]) {

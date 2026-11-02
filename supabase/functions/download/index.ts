@@ -3,7 +3,7 @@
 // 必要 Secret：DOWNLOAD_TOKEN_SECRET（至少 32 字元的隨機字串）
 // 選用 Secret：ALLOWED_ORIGINS（逗號分隔，例如 https://你的帳號.github.io）
 import { createClient } from "npm:@supabase/supabase-js@2";
-import { handle, type CollectionWorkRow, type ImageRow } from "./handler.ts";
+import { handle, type CollectionWorkRow, type ImageRow, type WorkAvatarRow } from "./handler.ts";
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
 // 伺服器端金鑰由 Supabase 自動注入 Edge Function（不在前端、不在 GitHub）：
@@ -92,6 +92,15 @@ Deno.serve((req) =>
       if (error) throw new Error(`collection query failed (${error.code})`);
       return (data as unknown as (Omit<CollectionWorkRow, "collection_public"> & { collections: { is_published: boolean } | null })[])
         .map(({ collections, ...r }) => ({ ...r, collection_public: collections?.is_published === true }));
+    },
+    async getWorkAvatar(avatarId) {
+      const { data, error } = await admin
+        .from("collection_work_avatars")
+        .select("id,work_id,original_path,mime_type,file_size,sort_order")
+        .eq("id", avatarId)
+        .maybeSingle();
+      if (error) throw new Error(`avatar query failed (${error.code})`);
+      return data as WorkAvatarRow | null;
     },
     async signUrls(paths, expiresIn) {
       const { data, error } = await admin.storage.from("originals").createSignedUrls(paths, expiresIn);
