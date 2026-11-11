@@ -160,8 +160,11 @@ export default function AdminCollection() {
     setError("");
     let ok = 0;
     let current = [...works];
-    // 先上傳完整照片（建立作品），再上傳大頭貼版
-    const order = plan.map((p, i) => ({ p, i })).sort((a, b) => (a.p.kind === b.p.kind ? a.i - b.i : a.p.kind === "photo" ? -1 : 1));
+    // 先上傳完整照片（建立作品），再上傳大頭貼版；同一種照片依編號由小到大，
+    // 讓新建立的作品排序跟著編號走（不受手機選檔順序影響）
+    const order = plan
+      .map((p, i) => ({ p, i }))
+      .sort((a, b) => (a.p.kind === b.p.kind ? a.p.target - b.p.target || a.i - b.i : a.p.kind === "photo" ? -1 : 1));
     for (const { i } of order) {
       const item = plan[i];
       if (item.status !== "ready") continue;

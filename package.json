@@ -13,7 +13,8 @@
     "test:e2e": "node tests/e2e/run-e2e.mjs",
     "check:secrets": "node scripts/check-secrets.mjs",
     "test:e2e:life": "node tests/e2e/run-e2e-life.mjs",
-    "test:e2e:studio": "node tests/e2e/run-e2e-studio.mjs"
+    "test:e2e:studio": "node tests/e2e/run-e2e-studio.mjs",
+    "test:e2e:work": "node tests/e2e/run-e2e-work.mjs"
   },
   "license": "UNLICENSED",
   "devDependencies": {
